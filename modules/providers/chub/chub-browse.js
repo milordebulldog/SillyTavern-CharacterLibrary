@@ -146,14 +146,12 @@ const CHUB_IMG_PLACEHOLDER = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org
 
 // Local library lookup for marking characters as "In Library"
 let localLibraryLookup = {
-    byName: new Set(),           // Lowercase names
     byNameAndCreator: new Set(), // "name|creator" combos
     byChubPath: new Set()        // ChubAI fullPath if stored
 };
 
 // Build local library lookup from allCharacters
 function buildLocalLibraryLookup() {
-    localLibraryLookup.byName.clear();
     localLibraryLookup.byNameAndCreator.clear();
     localLibraryLookup.byChubPath.clear();
     
@@ -161,10 +159,6 @@ function buildLocalLibraryLookup() {
         if (!char) continue;
         
         const name = (char.name || '').toLowerCase().trim();
-        if (name) {
-            localLibraryLookup.byName.add(name);
-        }
-        
         const creator = (char.creator || char.data?.creator || '').toLowerCase().trim();
         if (name && creator) {
             localLibraryLookup.byNameAndCreator.add(`${name}|${creator}`);
@@ -194,8 +188,7 @@ function buildLocalLibraryLookup() {
     }
     
     debugLog('[LocalLibrary] Built lookup:', 
-        'names:', localLibraryLookup.byName.size,
-        'name+creator:', localLibraryLookup.byNameAndCreator.size,
+        'nameCreators:', localLibraryLookup.byNameAndCreator.size,
         'chubPaths:', localLibraryLookup.byChubPath.size);
 }
 
@@ -211,12 +204,6 @@ function isCharInLocalLibrary(chubChar) {
     
     // Good match: name + creator combo
     if (name && creator && localLibraryLookup.byNameAndCreator.has(`${name}|${creator}`)) {
-        return true;
-    }
-    
-    // Acceptable match: just name (might have false positives for common names)
-    // Only use this if name is reasonably unique (length > 3)
-    if (name && name.length > 3 && localLibraryLookup.byName.has(name)) {
         return true;
     }
     
@@ -666,6 +653,15 @@ class ChubBrowseView extends BrowseView {
     }
 
     activate(container, options = {}) {
+        if (options.domRecreated) {
+            chubCurrentSearch = '';
+            chubAuthorFilter = null;
+            chubCharacters = [];
+            chubTimelineCharacters = [];
+            chubCurrentPage = 1;
+            chubHasMore = true;
+            chubTimelinePage = 1;
+        }
         super.activate(container, options);
         chubDelegatesInitialized = true;
 

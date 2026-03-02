@@ -72,7 +72,6 @@ let jannyAuthorFilter = null;
 
 // Local library lookup for "In Library" badges
 let localLibraryLookup = {
-    byName: new Set(),
     byNameAndCreator: new Set(),
     byJannyId: new Set()
 };
@@ -153,7 +152,6 @@ async function searchJanny(opts = {}) {
 // ========================================
 
 function buildLocalLibraryLookup() {
-    localLibraryLookup.byName.clear();
     localLibraryLookup.byNameAndCreator.clear();
     localLibraryLookup.byJannyId.clear();
 
@@ -161,8 +159,6 @@ function buildLocalLibraryLookup() {
         if (!char) continue;
 
         const name = (char.name || '').toLowerCase().trim();
-        if (name) localLibraryLookup.byName.add(name);
-
         const creator = (char.creator || char.data?.creator || '').toLowerCase().trim();
         if (name && creator) localLibraryLookup.byNameAndCreator.add(`${name}|${creator}`);
 
@@ -171,7 +167,7 @@ function buildLocalLibraryLookup() {
     }
 
     debugLog('[JannyBrowse] Library lookup built:',
-        'names:', localLibraryLookup.byName.size,
+        'nameCreators:', localLibraryLookup.byNameAndCreator.size,
         'jannyIds:', localLibraryLookup.byJannyId.size);
 }
 
@@ -179,7 +175,8 @@ function isCharInLocalLibrary(jannyChar) {
     if (jannyChar.id && localLibraryLookup.byJannyId.has(String(jannyChar.id))) return true;
 
     const name = (jannyChar.name || '').toLowerCase().trim();
-    if (name && name.length > 3 && localLibraryLookup.byName.has(name)) return true;
+    const creator = (jannyChar.creatorUsername || '').toLowerCase().trim();
+    if (name && creator && localLibraryLookup.byNameAndCreator.has(`${name}|${creator}`)) return true;
 
     return false;
 }
@@ -1390,6 +1387,14 @@ class JannyBrowseView extends BrowseView {
     }
 
     activate(container, options = {}) {
+        if (options.domRecreated) {
+            jannyCurrentSearch = '';
+            jannyAuthorFilter = null;
+            jannyCharacters = [];
+            jannyCurrentPage = 1;
+            jannyHasMore = true;
+            jannyGridRenderedCount = 0;
+        }
         const wasInitialized = this._initialized;
         super.activate(container, options);
 
