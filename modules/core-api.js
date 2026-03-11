@@ -98,6 +98,14 @@ export function openCharacterModal(char) {
 }
 
 /**
+ * Open character detail modal elevated above confirm-modals
+ * @param {Object} char - Character object
+ */
+export function openCharModalElevated(char) {
+    return window.openCharModalElevated?.(char);
+}
+
+/**
  * Close the character detail modal
  */
 export function closeCharacterModal() {
@@ -918,6 +926,7 @@ export default {
     
     // UI
     openCharacterModal,
+    openCharModalElevated,
     closeCharacterModal,
     getActiveChar,
     setActiveChar,

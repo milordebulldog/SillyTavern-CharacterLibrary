@@ -568,6 +568,39 @@ async function buildChatMediaLocalizationMap(character) {
     }
 }
 
+// Duplicated from library.js (extractSanitizedUrlName). keep in sync
+const CDN_VARIANT_NAMES = new Set(['public', 'original', 'raw', 'full', 'thumbnail', 'thumb',
+    'medium', 'small', 'large', 'xl', 'default', 'image', 'photo', 'download', 'view']);
+
+/**
+ * Extract a CDN-aware sanitized name from a URL (matches extractSanitizedUrlName in library.js)
+ */
+function extractSanitizedUrlNameForChat(url) {
+    try {
+        const urlObj = new URL(url);
+        const pathParts = urlObj.pathname.split('/').filter(Boolean);
+        if (pathParts.length === 0) return '';
+
+        const lastPart = pathParts[pathParts.length - 1];
+        const nameWithoutExt = lastPart.includes('.')
+            ? lastPart.substring(0, lastPart.lastIndexOf('.'))
+            : lastPart;
+        const sanitized = nameWithoutExt.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 40);
+
+        if (pathParts.length >= 2 && CDN_VARIANT_NAMES.has(sanitized.toLowerCase())) {
+            const parent = pathParts[pathParts.length - 2]
+                .replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 30);
+            if (parent.length >= 4) {
+                return `${parent}_${sanitized}`.substring(0, 40);
+            }
+        }
+
+        return sanitized;
+    } catch {
+        return '';
+    }
+}
+
 /**
  * Look up a remote URL and return local path if found
  */
@@ -578,7 +611,16 @@ function lookupLocalizedMediaForChat(urlMap, remoteUrl) {
     if (!filename) return null;
     
     const sanitizedName = sanitizeMediaFilename(filename);
-    return urlMap[`__sanitized__${sanitizedName}`] || null;
+    const localPath = urlMap[`__sanitized__${sanitizedName}`];
+    if (localPath) return localPath;
+
+    // CDN-aware fallback — files saved with parent+variant naming
+    const cdnAwareName = extractSanitizedUrlNameForChat(remoteUrl);
+    if (cdnAwareName && cdnAwareName !== sanitizedName) {
+        return urlMap[`__sanitized__${cdnAwareName}`] || null;
+    }
+
+    return null;
 }
 
 /**

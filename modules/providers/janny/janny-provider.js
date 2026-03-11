@@ -411,6 +411,14 @@ class JannyProvider extends ProviderBase {
     get iconUrl() { return 'https://tse3.mm.bing.net/th/id/OIP.nb-qi0od9W6zRsskVwL6QAHaHa?rs=1&pid=ImgDetMain&o=7&rm=3'; }
     get browseView() { return jannyBrowseView; }
 
+    get linkStatFields() {
+        return {
+            stat1: null,
+            stat2: null,
+            stat3: { icon: 'fa-solid fa-coins', label: 'Tokens' },
+        };
+    }
+
     // ── Lifecycle ───────────────────────────────────────────
 
     async init(coreAPI) {
@@ -485,11 +493,10 @@ class JannyProvider extends ProviderBase {
             const match = hits.find(h => h.id === linkInfo.id);
             if (!match) return null;
 
-            // Janny's public API only exposes token count — no downloads or favorites
             return {
-                downloads: null,
-                favorites: null,
-                tokens: match.totalToken || 0
+                stat1: null,
+                stat2: null,
+                stat3: match.totalToken || 0
             };
         } catch (e) {
             api?.debugLog?.('[JannyProvider] fetchLinkStats:', e.message);

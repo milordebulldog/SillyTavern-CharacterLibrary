@@ -272,7 +272,7 @@ function updateLoadMore() {
     const loadMore = document.getElementById('pygLoadMore');
     if (loadMore) {
         // Allow loading more even if current list is empty (can happen if client-side filters hide all results on a page)
-        loadMore.style.display = pygHasMore ? 'block' : 'none';
+        loadMore.style.display = pygHasMore ? 'flex' : 'none';
     }
 }
 
@@ -329,7 +329,8 @@ async function loadCharacters(append = false) {
 
         // Client-side: strict tag filtering (API does substring matching, so "Male" matches "Female")
         // Only apply in search mode (author mode API doesn't support tags anyway)
-        if (pygIncludeTags.size > 0 && !pygAuthorOwnerId) {
+        const strictTagFilter = pygIncludeTags.size > 0 && !pygAuthorOwnerId;
+        if (strictTagFilter) {
             const requiredTags = Array.from(pygIncludeTags).map(t => t.toLowerCase());
             hits = hits.filter(h => {
                 if (!h.tags || !Array.isArray(h.tags)) return false;
@@ -345,6 +346,50 @@ async function loadCharacters(append = false) {
         // Client-side: hide owned characters
         if (pygFilterHideOwned) {
             hits = hits.filter(h => !isCharInLocalLibrary(h));
+        }
+
+        // Auto-fetch when client-side filters remove too many results
+        const hasClientFilters = pygFilterHideOwned || strictTagFilter;
+        if (hasClientFilters && pygCurrentPage < totalPages - 1) {
+            let autoFetches = 0;
+            while (hits.length < PAGE_SIZE && pygCurrentPage < totalPages - 1 && autoFetches < 3 && delegatesInitialized) {
+                autoFetches++;
+                pygCurrentPage++;
+                let moreData;
+                if (pygAuthorOwnerId) {
+                    moreData = await fetchCharactersByOwner(pygAuthorOwnerId, pygAuthorSort, pygCurrentPage, pygToken || undefined);
+                } else {
+                    moreData = await searchCharacters({
+                        query: pygCurrentSearch,
+                        orderBy: pygSortMode,
+                        orderDescending: pygSortDescending,
+                        includeSensitive: pygNsfwEnabled,
+                        token: pygNsfwEnabled ? pygToken : undefined,
+                        pageSize: PAGE_SIZE,
+                        page: pygCurrentPage,
+                        tagsNamesInclude: [...pygIncludeTags],
+                        tagsNamesExclude: [...pygExcludeTags],
+                    });
+                }
+                if (!delegatesInitialized) return;
+                let moreHits = moreData?.characters || [];
+                if (strictTagFilter) {
+                    const requiredTags = Array.from(pygIncludeTags).map(t => t.toLowerCase());
+                    moreHits = moreHits.filter(h => {
+                        if (!h.tags || !Array.isArray(h.tags)) return false;
+                        const charTags = h.tags.map(t => t.toLowerCase());
+                        return requiredTags.every(rt => charTags.includes(rt));
+                    });
+                }
+                collectTagsFromResults(moreHits);
+                if (pygFilterHideOwned) {
+                    moreHits = moreHits.filter(h => !isCharInLocalLibrary(h));
+                }
+                hits = hits.concat(moreHits);
+            }
+            if (autoFetches > 0) {
+                debugLog(`[PygBrowse] Auto-fetched ${autoFetches} extra page(s) to compensate for client-side filters`);
+            }
         }
 
         if (append) {
@@ -551,6 +596,7 @@ function openPreviewModal(hit) {
         if (avatarImg) {
             avatarImg.src = avatarUrl;
             avatarImg.onerror = () => { avatarImg.src = '/img/ai4.png'; };
+            BrowseView.adjustPortraitPosition(avatarImg);
         }
         const nameEl = document.getElementById('pygCharName');
         if (nameEl) nameEl.textContent = name;
@@ -661,6 +707,8 @@ function openPreviewModal(hit) {
     }
 
     modal.classList.remove('hidden');
+    const charBody = modal.querySelector('.browse-char-body');
+    if (charBody) charBody.scrollTop = 0;
 
     // Search results don't include personality — always fetch full detail
     if (!hit.personality) {
@@ -716,7 +764,7 @@ function populateDefinitionSections(name, p, altGreetings) {
         if (altGreetings.length > 0) {
             altSection.style.display = 'block';
             if (altCountEl) altCountEl.textContent = `(${altGreetings.length})`;
-            window.currentPygAltGreetings = altGreetings;
+            window.currentBrowseAltGreetings = altGreetings;
             if (altEl) {
                 const buildPreview = (text) => {
                     const cleaned = (text || '').replace(/\s+/g, ' ').trim();
@@ -753,7 +801,7 @@ function populateDefinitionSections(name, p, altGreetings) {
             }
         } else {
             altSection.style.display = 'none';
-            window.currentPygAltGreetings = [];
+            window.currentBrowseAltGreetings = [];
         }
     }
 
@@ -817,15 +865,35 @@ async function fetchAndPopulateDetails(hit, stalenessToken) {
 
     } catch (err) {
         debugLog('[PygBrowse] Detail fetch error:', err);
+        if (stalenessToken === pygDetailFetchToken) {
+            const descEl = document.getElementById('pygCharDescription');
+            if (descEl) descEl.innerHTML = '<em style="color: var(--text-secondary, #888)">Could not load character definition. The character can still be imported with basic info.</em>';
+        }
+    }
+}
+
+function cleanupPygCharModal() {
+    window.currentBrowseAltGreetings = null;
+    const sectionIds = [
+        'pygCharDescription',
+        'pygCharFirstMsg',
+        'pygCharAltGreetings',
+        'pygCharExamples',
+        'pygCharCreatorNotes',
+        'pygCharTags',
+    ];
+    for (const id of sectionIds) {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = '';
     }
 }
 
 function closePreviewModal() {
     pygDetailFetchToken++;
+    cleanupPygCharModal();
     const modal = document.getElementById('pygCharModal');
     if (modal) modal.classList.add('hidden');
     pygSelectedChar = null;
-    window.currentPygAltGreetings = null;
 }
 
 // ========================================
@@ -2052,9 +2120,9 @@ function initPygView() {
             });
         }
 
-        // Avatar click → full-size viewer
+        // Avatar click → full-size viewer (desktop only; mobile has its own handler)
         const avatar = document.getElementById('pygCharAvatar');
-        if (avatar) {
+        if (avatar && !window.matchMedia('(max-width: 768px)').matches) {
             avatar.style.cursor = 'pointer';
             avatar.addEventListener('click', () => {
                 const src = avatar.src;
@@ -2117,6 +2185,31 @@ class PygmalionBrowseView extends BrowseView {
 
     get previewModalId() { return 'pygCharModal'; }
     get hasModeToggle() { return true; }
+
+    getSettingsConfig() {
+        return {
+            browseSortOptions: [
+                { value: 'downloads', label: 'Downloads' },
+                { value: 'stars', label: 'Stars' },
+                { value: 'views', label: 'Views' },
+                { value: 'approved_at', label: 'Newest' },
+                { value: 'token_count', label: 'Tokens' },
+                { value: 'display_name', label: 'Name' },
+            ],
+            followingSortOptions: [
+                { value: 'newest', label: 'Newest Created' },
+                { value: 'oldest', label: 'Oldest First' },
+                { value: 'name_asc', label: 'Name A-Z' },
+                { value: 'name_desc', label: 'Name Z-A' },
+                { value: 'downloads', label: 'Most Downloads' },
+                { value: 'stars', label: 'Most Stars' },
+            ],
+            viewModes: [
+                { value: 'browse', label: 'Browse' },
+                { value: 'following', label: 'Following' },
+            ],
+        };
+    }
 
     closePreview() {
         closePreviewModal();
@@ -2434,6 +2527,15 @@ class PygmalionBrowseView extends BrowseView {
                     <div id="pygCharDescription" class="scrolling-text"></div>
                 </div>
 
+                <!-- Example Dialogs -->
+                <div class="browse-char-section browse-section-collapsed" id="pygCharExamplesSection" style="display: none;">
+                    <h3 class="browse-section-title" data-section="pygCharExamples" data-label="Example Dialogs" data-icon="fa-solid fa-comments" title="Click to expand">
+                        <i class="fa-solid fa-comments"></i> Example Dialogs
+                        <span class="browse-section-inline-toggle" title="Toggle inline"><i class="fa-solid fa-chevron-down"></i></span>
+                    </h3>
+                    <div id="pygCharExamples" class="scrolling-text"></div>
+                </div>
+
                 <!-- First Message -->
                 <div class="browse-char-section" id="pygCharFirstMsgSection" style="display: none;">
                     <h3 class="browse-section-title" data-section="pygCharFirstMsg" data-label="First Message" data-icon="fa-solid fa-message" title="Click to expand">
@@ -2444,18 +2546,10 @@ class PygmalionBrowseView extends BrowseView {
 
                 <!-- Alternate Greetings -->
                 <div class="browse-char-section" id="pygCharAltGreetingsSection" style="display: none;">
-                    <h3 class="browse-section-title" data-section="pygCharAltGreetings" data-label="Alternate Greetings" data-icon="fa-solid fa-comments" title="Click to expand">
+                    <h3 class="browse-section-title" data-section="browseAltGreetings" data-label="Alternate Greetings" data-icon="fa-solid fa-comments" title="Click to expand">
                         <i class="fa-solid fa-comments"></i> Alternate Greetings <span class="browse-section-count" id="pygCharAltGreetingsCount"></span>
                     </h3>
                     <div id="pygCharAltGreetings" class="browse-alt-greetings-list"></div>
-                </div>
-
-                <!-- Example Dialogs -->
-                <div class="browse-char-section" id="pygCharExamplesSection" style="display: none;">
-                    <h3 class="browse-section-title" data-section="pygCharExamples" data-label="Example Dialogs" data-icon="fa-solid fa-comments" title="Click to expand">
-                        <i class="fa-solid fa-comments"></i> Example Dialogs
-                    </h3>
-                    <div id="pygCharExamples" class="scrolling-text"></div>
                 </div>
             </div>
         </div>
@@ -2484,7 +2578,37 @@ class PygmalionBrowseView extends BrowseView {
         loadCharacters(false);
     }
 
-    activate(container, options = {}) {
+    applyDefaults(defaults) {
+        if (defaults.view === 'following') {
+            pygViewMode = 'following';
+            document.querySelectorAll('.pyg-view-btn').forEach(btn =>
+                btn.classList.toggle('active', btn.dataset.pygView === 'following')
+            );
+            const browseSection = document.getElementById('pygBrowseSection');
+            const followingSection = document.getElementById('pygFollowingSection');
+            browseSection?.classList.add('hidden');
+            followingSection?.classList.remove('hidden');
+            const bs = document.getElementById('pygSortSelect');
+            const fs = document.getElementById('pygFollowingSortSelect');
+            const bsTarget = bs?._customSelect?.container || bs;
+            const fsTarget = fs?._customSelect?.container || fs;
+            if (bsTarget) bsTarget.classList.add('browse-filter-hidden');
+            if (fsTarget) fsTarget.classList.remove('browse-filter-hidden');
+        }
+        if (defaults.sort) {
+            if (pygViewMode === 'browse') {
+                pygSortMode = defaults.sort;
+                const el = document.getElementById('pygSortSelect');
+                if (el) el.value = defaults.sort;
+            } else {
+                pygFollowingSort = defaults.sort;
+                const el = document.getElementById('pygFollowingSortSelect');
+                if (el) el.value = defaults.sort;
+            }
+        }
+    }
+
+    async activate(container, options = {}) {
         if (options.domRecreated) {
             pygCurrentSearch = '';
             pygCharacters = [];
@@ -2506,7 +2630,7 @@ class PygmalionBrowseView extends BrowseView {
         super.activate(container, options);
 
         loadPygToken();
-        tryAutoLogin();
+        await tryAutoLogin();
 
         if (wasInitialized && this._initialized && !options.domRecreated) {
             delegatesInitialized = true;
@@ -2527,6 +2651,10 @@ class PygmalionBrowseView extends BrowseView {
                     renderPygFollowing();
                 }
             }
+        }
+
+        if (options.domRecreated && pygViewMode === 'following') {
+            loadPygFollowingTimeline();
         }
     }
 

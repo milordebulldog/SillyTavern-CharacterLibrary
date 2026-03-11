@@ -286,7 +286,7 @@ function renderGrid(characters, append = false) {
 function updateLoadMore() {
     const loadMore = document.getElementById('ctLoadMore');
     if (loadMore) {
-        loadMore.style.display = ctHasMore && ctCharacters.length > 0 ? 'block' : 'none';
+        loadMore.style.display = ctHasMore && ctCharacters.length > 0 ? 'flex' : 'none';
     }
 }
 
@@ -355,6 +355,26 @@ async function loadCharacters(append = false) {
             hits = hits.filter(h => !isCharInLocalLibrary(h));
         }
 
+        // Auto-fetch when client-side filters remove too many results
+        const hasClientFilters = ctFilterHideOwned || !ctNsfwEnabled;
+        if (hasClientFilters && ctCurrentPage < ctTotalPages) {
+            let autoFetches = 0;
+            while (hits.length < 30 && ctCurrentPage < ctTotalPages && autoFetches < 3 && delegatesInitialized) {
+                autoFetches++;
+                ctCurrentPage++;
+                opts.page = ctCurrentPage;
+                const moreData = await searchCards(opts, apiRequest);
+                if (thisToken !== ctLoadToken || !delegatesInitialized) return;
+                let moreHits = moreData?.hits || [];
+                if (!ctNsfwEnabled) moreHits = moreHits.filter(h => !h.isNSFW);
+                if (ctFilterHideOwned) moreHits = moreHits.filter(h => !isCharInLocalLibrary(h));
+                hits = hits.concat(moreHits);
+            }
+            if (autoFetches > 0) {
+                debugLog(`[CTBrowse] Auto-fetched ${autoFetches} extra page(s) to compensate for client-side filters`);
+            }
+        }
+
         if (append) {
             ctCharacters = ctCharacters.concat(hits);
         } else {
@@ -419,7 +439,7 @@ function openPreviewModal(hit) {
 
     const name = hit.name || 'Unknown';
     const author = hit.author || hit.path?.split('/')[0] || 'Unknown';
-    const avatarUrl = hit.path ? getAvatarUrl(hit.path, 512) : '/img/ai4.png';
+    const avatarUrl = hit.path ? getAvatarUrl(hit.path) : '/img/ai4.png';
     const ctUrl = hit.path ? getCharacterPageUrl(hit.path) : '#';
     const inLibrary = isCharInLocalLibrary(hit);
 
@@ -442,6 +462,7 @@ function openPreviewModal(hit) {
         if (avatarImg) {
             avatarImg.src = avatarUrl;
             avatarImg.onerror = () => { avatarImg.src = '/img/ai4.png'; };
+            BrowseView.adjustPortraitPosition(avatarImg);
         }
         const nameEl = document.getElementById('ctCharName');
         if (nameEl) nameEl.textContent = name;
@@ -562,7 +583,7 @@ function openPreviewModal(hit) {
             if (altGreetings.length > 0) {
                 altGreetingsSection.style.display = 'block';
                 if (altGreetingsCountEl) altGreetingsCountEl.textContent = `(${altGreetings.length})`;
-                window.currentCtAltGreetings = altGreetings;
+                window.currentBrowseAltGreetings = altGreetings;
                 if (altGreetingsEl) {
                     const buildPreview = (text) => {
                         const cleaned = (text || '').replace(/\s+/g, ' ').trim();
@@ -599,7 +620,7 @@ function openPreviewModal(hit) {
                 }
             } else {
                 altGreetingsSection.style.display = 'none';
-                window.currentCtAltGreetings = [];
+                window.currentBrowseAltGreetings = [];
             }
         }
 
@@ -635,6 +656,8 @@ function openPreviewModal(hit) {
     }
 
     modal.classList.remove('hidden');
+    const charBody = modal.querySelector('.browse-char-body');
+    if (charBody) charBody.scrollTop = 0;
 
     // If no definition was available in the search hit, fetch full details
     if (!charDef) {
@@ -652,7 +675,12 @@ async function fetchAndPopulateDetails(hit, token) {
     try {
         const data = await fetchCharacterDetail(parts[0], parts[1], apiRequest);
         if (token !== ctDetailFetchToken) return;
-        if (!data?.card) return;
+
+        if (!data?.card) {
+            const descEl = document.getElementById('ctCharDescription');
+            if (descEl) descEl.innerHTML = '<em style="color: var(--text-secondary, #888)">Could not load character definition. The character can still be imported with basic info.</em>';
+            return;
+        }
 
         const card = data.card;
 
@@ -671,35 +699,37 @@ async function fetchAndPopulateDetails(hit, token) {
         const descSection = document.getElementById('ctCharDescriptionSection');
         const descEl = document.getElementById('ctCharDescription');
         const charDef = card.definition_character_description || '';
-        if (charDef) {
-            descSection.style.display = 'block';
-            descEl.innerHTML = formatRichText(charDef, name, false);
-        } else {
-            descSection.style.display = 'none';
+        if (descSection) {
+            if (charDef) {
+                descSection.style.display = 'block';
+                if (descEl) descEl.innerHTML = formatRichText(charDef, name, false);
+            } else {
+                descSection.style.display = 'none';
+            }
         }
 
         const scenarioSection = document.getElementById('ctCharScenarioSection');
         const scenarioEl = document.getElementById('ctCharScenario');
         const scenario = card.definition_scenario || '';
-        if (scenario) {
+        if (scenarioSection && scenario) {
             scenarioSection.style.display = 'block';
-            scenarioEl.innerHTML = formatRichText(scenario, name, false);
+            if (scenarioEl) scenarioEl.innerHTML = formatRichText(scenario, name, false);
         }
 
         const firstMsgSection = document.getElementById('ctCharFirstMsgSection');
         const firstMsgEl = document.getElementById('ctCharFirstMsg');
         const firstMsg = card.definition_first_message || '';
-        if (firstMsg) {
+        if (firstMsgSection && firstMsg) {
             firstMsgSection.style.display = 'block';
-            firstMsgEl.innerHTML = formatRichText(firstMsg, name, false);
+            if (firstMsgEl) firstMsgEl.innerHTML = formatRichText(firstMsg, name, false);
         }
 
         const examplesSection = document.getElementById('ctCharExamplesSection');
         const examplesEl = document.getElementById('ctCharExamples');
         const examples = card.definition_example_messages || '';
-        if (examples) {
+        if (examplesSection && examples) {
             examplesSection.style.display = 'block';
-            examplesEl.innerHTML = formatRichText(examples, name, false);
+            if (examplesEl) examplesEl.innerHTML = formatRichText(examples, name, false);
         }
 
         // Lorebook stat (detail API has lorebookId; search hit might not)
@@ -709,15 +739,36 @@ async function fetchAndPopulateDetails(hit, token) {
         }
     } catch (err) {
         debugLog('[CTBrowse] Detail fetch error:', err);
+        if (token === ctDetailFetchToken) {
+            const descEl = document.getElementById('ctCharDescription');
+            if (descEl) descEl.innerHTML = '<em style="color: var(--text-secondary, #888)">Could not load character definition. The character can still be imported with basic info.</em>';
+        }
+    }
+}
+
+function cleanupCtCharModal() {
+    window.currentBrowseAltGreetings = null;
+    const sectionIds = [
+        'ctCharDescription',
+        'ctCharScenario',
+        'ctCharFirstMsg',
+        'ctCharExamples',
+        'ctCharAltGreetings',
+        'ctCharCreatorNotes',
+        'ctCharTags',
+    ];
+    for (const id of sectionIds) {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = '';
     }
 }
 
 function closePreviewModal() {
     ctDetailFetchToken++;
+    cleanupCtCharModal();
     const modal = document.getElementById('ctCharModal');
     if (modal) modal.classList.add('hidden');
     ctSelectedChar = null;
-    window.currentCtAltGreetings = null;
 }
 
 // ========================================
@@ -1476,6 +1527,20 @@ class ChartavernBrowseView extends BrowseView {
 
     get previewModalId() { return 'ctCharModal'; }
 
+    getSettingsConfig() {
+        return {
+            browseSortOptions: [
+                { value: 'most_popular', label: 'Most Popular' },
+                { value: 'trending', label: 'Trending' },
+                { value: 'newest', label: 'Newest' },
+                { value: 'oldest', label: 'Oldest' },
+                { value: 'most_likes', label: 'Most Liked' },
+            ],
+            followingSortOptions: [],
+            viewModes: [],
+        };
+    }
+
     closePreview() {
         closePreviewModal();
     }
@@ -1766,6 +1831,15 @@ class ChartavernBrowseView extends BrowseView {
                     <div id="ctCharScenario" class="scrolling-text"></div>
                 </div>
 
+                <!-- Example Dialogs -->
+                <div class="browse-char-section browse-section-collapsed" id="ctCharExamplesSection" style="display: none;">
+                    <h3 class="browse-section-title" data-section="ctCharExamples" data-label="Example Dialogs" data-icon="fa-solid fa-comments" title="Click to expand">
+                        <i class="fa-solid fa-comments"></i> Example Dialogs
+                        <span class="browse-section-inline-toggle" title="Toggle inline"><i class="fa-solid fa-chevron-down"></i></span>
+                    </h3>
+                    <div id="ctCharExamples" class="scrolling-text"></div>
+                </div>
+
                 <!-- First Message -->
                 <div class="browse-char-section" id="ctCharFirstMsgSection" style="display: none;">
                     <h3 class="browse-section-title" data-section="ctCharFirstMsg" data-label="First Message" data-icon="fa-solid fa-message" title="Click to expand">
@@ -1776,18 +1850,10 @@ class ChartavernBrowseView extends BrowseView {
 
                 <!-- Alternate Greetings -->
                 <div class="browse-char-section" id="ctCharAltGreetingsSection" style="display: none;">
-                    <h3 class="browse-section-title" data-section="ctCharAltGreetings" data-label="Alternate Greetings" data-icon="fa-solid fa-comments" title="Click to expand">
+                    <h3 class="browse-section-title" data-section="browseAltGreetings" data-label="Alternate Greetings" data-icon="fa-solid fa-comments" title="Click to expand">
                         <i class="fa-solid fa-comments"></i> Alternate Greetings <span class="browse-section-count" id="ctCharAltGreetingsCount"></span>
                     </h3>
                     <div id="ctCharAltGreetings" class="browse-alt-greetings-list"></div>
-                </div>
-
-                <!-- Example Dialogs -->
-                <div class="browse-char-section" id="ctCharExamplesSection" style="display: none;">
-                    <h3 class="browse-section-title" data-section="ctCharExamples" data-label="Example Dialogs" data-icon="fa-solid fa-comments" title="Click to expand">
-                        <i class="fa-solid fa-comments"></i> Example Dialogs
-                    </h3>
-                    <div id="ctCharExamples" class="scrolling-text"></div>
                 </div>
             </div>
         </div>
@@ -1808,6 +1874,14 @@ class ChartavernBrowseView extends BrowseView {
         if (grid) this.observeImages(grid);
         // Check session silently — if logged in, update toggle and reload with NSFW
         tryCheckSession().then(() => loadCharacters(false));
+    }
+
+    applyDefaults(defaults) {
+        if (defaults.sort) {
+            ctSortMode = defaults.sort;
+            const el = document.getElementById('ctSortSelect');
+            if (el) el.value = defaults.sort;
+        }
     }
 
     activate(container, options = {}) {

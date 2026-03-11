@@ -65,10 +65,27 @@ export class BrowseView {
             this.injectModals();
             this.init();
         }
+        // Apply saved defaults on first activation with DOM rebuild
+        if (options.domRecreated && options.defaults) {
+            this.applyDefaults(options.defaults);
+        }
         // Re-register dropdown dismiss after deactivate removed it
         if (this._dropdownDismissPairs && !this._dropdownCloseHandler) {
             this._registerDropdownDismiss(this._dropdownDismissPairs);
         }
+    }
+
+    /**
+     * Apply saved default view/sort settings from the settings modal.
+     * Called once on first activation when domRecreated is true.
+     * Subclasses override to set their specific selects/toggles.
+     * Sort-only providers set the sort variable + DOM element.
+     * View+sort providers set the view mode variable (the activate()
+     * continuation uses it for data loading) and sort.
+     * @param {Object} defaults - { view?: string, sort?: string }
+     */
+    applyDefaults(defaults) {
+        // Base implementation — no-op. Subclasses override.
     }
 
     /**
@@ -116,6 +133,7 @@ export class BrowseView {
                 const realSrc = img.dataset.src;
                 if (realSrc && !img.dataset.failed && img.src !== realSrc) {
                     img.src = realSrc;
+                    BrowseView.adjustPortraitPosition(img);
                 }
             }
         }, { rootMargin: '600px' });
@@ -132,6 +150,7 @@ export class BrowseView {
         if (!this._imageObserver) this._initImageObserver();
         requestAnimationFrame(() => {
             this.eagerLoadVisibleImages(container);
+            this.eagerPreloadImages(container);
             const images = Array.from(
                 container.querySelectorAll('.browse-card-image img')
             ).filter(img => !img.dataset.observed);
@@ -175,7 +194,30 @@ export class BrowseView {
             const rect = img.getBoundingClientRect();
             if (rect.bottom > -160 && rect.top < preloadBottom) {
                 const realSrc = img.dataset.src;
-                if (realSrc && img.src !== realSrc) img.src = realSrc;
+                if (realSrc && img.src !== realSrc) {
+                    img.src = realSrc;
+                    BrowseView.adjustPortraitPosition(img);
+                }
+            }
+        }
+    }
+
+    /**
+     * Preload a batch of images beyond the viewport for smoother scrolling.
+     * @param {HTMLElement} container
+     */
+    eagerPreloadImages(container) {
+        if (!container) return;
+        const images = container.querySelectorAll('.browse-card-image img[data-src]');
+        let loaded = 0;
+        for (const img of images) {
+            if (loaded >= 48) break;
+            if (img.dataset.failed) continue;
+            const realSrc = img.dataset.src;
+            if (realSrc && img.src !== realSrc) {
+                img.src = realSrc;
+                BrowseView.adjustPortraitPosition(img);
+                loaded++;
             }
         }
     }
@@ -274,6 +316,14 @@ export class BrowseView {
     get hasModeToggle() { return false; }
 
     /**
+     * Return sort/view config for the settings modal.
+     * @returns {{ browseSortOptions: Array<{value:string, label:string}>, followingSortOptions: Array<{value:string, label:string}>, viewModes: Array<{value:string, label:string}> }}
+     */
+    getSettingsConfig() {
+        return { browseSortOptions: [], followingSortOptions: [], viewModes: [] };
+    }
+
+    /**
      * Full teardown — page unload.
      */
     destroy() {
@@ -332,6 +382,26 @@ export class BrowseView {
         if (!viewer) return;
         if (viewer._onKey) document.removeEventListener('keydown', viewer._onKey);
         viewer.remove();
+    }
+
+    // ── Portrait-aware position ─────────────────────────────
+
+    static adjustPortraitPosition(img) {
+        img.style.objectPosition = '';
+        const apply = () => {
+            const { naturalWidth: w, naturalHeight: h } = img;
+            if (w > 0 && h > 0 && h / w > 1.3) {
+                img.style.objectPosition = 'center 10%';
+            }
+        };
+        if (img.complete && img.naturalWidth > 0) {
+            apply();
+        } else {
+            img.addEventListener('load', function handler() {
+                img.removeEventListener('load', handler);
+                apply();
+            });
+        }
     }
 }
 

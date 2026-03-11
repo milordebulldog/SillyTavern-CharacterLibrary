@@ -204,6 +204,10 @@ export async function importFromPng({
     avatarUrl = null,
     api
 }) {
+    if (characterCard?.data?.name && characterCard.data.name.length > 128) {
+        characterCard.data.name = characterCard.data.name.substring(0, 128).trimEnd();
+    }
+
     let pngBuffer = await ensurePng(imageBuffer, api);
     imageBuffer = null;
 
@@ -288,13 +292,7 @@ export async function saveGalleryImage(downloadResult, imageInfo, folderName, co
             if (urlMatch) extension = urlMatch[1].toLowerCase();
         }
 
-        const urlObj = new URL(imageInfo.url);
-        const pathParts = urlObj.pathname.split('/');
-        const originalFilename = pathParts[pathParts.length - 1] || 'gallery_image';
-        const originalNameNoExt = originalFilename.includes('.')
-            ? originalFilename.substring(0, originalFilename.lastIndexOf('.'))
-            : originalFilename;
-        const sanitizedName = originalNameNoExt.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 40);
+        const sanitizedName = api.extractSanitizedUrlName?.(imageInfo.url) || 'gallery_image';
         const shortHash = (contentHash?.length >= 8) ? contentHash.substring(0, 8) : 'nohash00';
         const filenameBase = `${filePrefix}_${shortHash}_${sanitizedName}`;
 

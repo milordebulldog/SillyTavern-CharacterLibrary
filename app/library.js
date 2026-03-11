@@ -78,16 +78,7 @@ function debounce(func, wait) {
     };
 }
 
-function throttle(func, wait) {
-    let lastTime = 0;
-    return function executedFunction(...args) {
-        const now = Date.now();
-        if (now - lastTime >= wait) {
-            lastTime = now;
-            func(...args);
-        }
-    };
-}
+
 
 // Simple cache for expensive computations
 const computationCache = new Map();
@@ -262,8 +253,14 @@ function initCustomSelect(select) {
         openedAt = Date.now();
         positionMenu();
         syncVisuals();
+        // Manual scroll instead of scrollIntoView to avoid ancestor scroll side-effects
         const selectedItem = menu.querySelector('.custom-select-item.selected');
-        if (selectedItem) selectedItem.scrollIntoView({ block: 'nearest' });
+        if (selectedItem) {
+            const itemTop = selectedItem.offsetTop;
+            const itemBottom = itemTop + selectedItem.offsetHeight;
+            if (itemTop < menu.scrollTop) menu.scrollTop = itemTop;
+            else if (itemBottom > menu.scrollTop + menu.clientHeight) menu.scrollTop = itemBottom - menu.clientHeight;
+        }
     }
 
     function close() {
@@ -394,10 +391,11 @@ function prepareCharacterKeys(chars) {
 const SETTINGS_KEY = 'SillyTavernCharacterGallery';
 const DEFAULT_SETTINGS = {
     chubToken: null,
-    chubRememberToken: false,
+    chubRememberToken: true,
     pygmalionEmail: null,
     pygmalionPassword: null,
-    pygmalionRememberCredentials: false,
+    pygmalionRememberCredentials: true,
+    wyvernRememberCredentials: true,
     ctCookie: null,
     pygmalionNsfw: false,
     ctNsfw: false,
@@ -431,6 +429,8 @@ const DEFAULT_SETTINGS = {
     uniqueGalleryFolders: false,
     // Show Info tab in character modal (debugging/metadata info)
     showInfoTab: false,
+    // Export copies provider links to clipboard instead of downloading PNGs
+    exportAsLinks: false,
     // Show provider tagline in character modal
     showProviderTagline: true,
     // Allow rich HTML/CSS in tagline rendering (sanitized)
@@ -441,6 +441,10 @@ const DEFAULT_SETTINGS = {
     fastFilenameSkip: false,
     // When fast skip is enabled, validate matched files via HEAD request (checks file size)
     fastSkipValidateHeaders: false,
+    // Provider display order in the Online tab (null = registration order)
+    providerOrder: null,
+    // Per-provider default view/sort (providerId → { view?, sort? })
+    providerDefaults: {},
 };
 
 // Debug logging helper - only logs when debug mode is enabled
@@ -733,6 +737,10 @@ function setupSettingsModal() {
     const ctCookieInput = document.getElementById('settingsCtCookie');
     const ctPluginBanner = document.getElementById('ctPluginBanner');
     const ctSettingsFields = document.getElementById('ctSettingsFields');
+    const wyvernEmailInput = document.getElementById('settingsWyvernEmail');
+    const wyvernPasswordInput = document.getElementById('settingsWyvernPassword');
+    const wyvernRememberCredsCheckbox = document.getElementById('settingsWyvernRememberCredentials');
+    const toggleWyvernPasswordVisibility = document.getElementById('toggleWyvernPasswordVisibility');
     const minScoreSlider = document.getElementById('settingsMinScore');
     const minScoreValue = document.getElementById('minScoreValue');
     
@@ -763,6 +771,7 @@ function setupSettingsModal() {
     // Developer
     const debugModeCheckbox = document.getElementById('settingsDebugMode');
     const showInfoTabCheckbox = document.getElementById('settingsShowInfoTab');
+    const exportAsLinksCheckbox = document.getElementById('settingsExportAsLinks');
     const showProviderTaglineCheckbox = document.getElementById('settingsShowProviderTagline');
     const allowRichTaglineCheckbox = document.getElementById('settingsAllowRichTagline');
     
@@ -786,7 +795,280 @@ function setupSettingsModal() {
     const imageRelocationStatusText = document.getElementById('imageRelocationStatusText');
     
     if (!settingsBtn || !settingsModal) return;
-    
+
+    // ── Provider Order & Defaults UI ────────────────────────
+
+    function buildProviderOrderUI() {
+        const container = document.getElementById('providerOrderList');
+        if (!container) return;
+
+        const registry = window.ProviderRegistry;
+        if (!registry) return;
+
+        const viewProviders = registry.getViewProviders();
+        if (viewProviders.length === 0) {
+            container.innerHTML = '<p class="settings-hint" style="text-align:center; padding:8px;">No providers available</p>';
+            return;
+        }
+
+        const savedOrder = getSetting('providerOrder');
+        const savedDefaults = getSetting('providerDefaults') || {};
+
+        // Sort providers: if saved order exists, use it; otherwise registration order
+        let ordered;
+        if (Array.isArray(savedOrder) && savedOrder.length > 0) {
+            const idSet = new Set(viewProviders.map(p => p.id));
+            const sorted = savedOrder.filter(id => idSet.has(id));
+            const rest = viewProviders.filter(p => !sorted.includes(p.id));
+            ordered = [...sorted.map(id => viewProviders.find(p => p.id === id)), ...rest];
+        } else {
+            ordered = viewProviders;
+        }
+
+        container.innerHTML = '';
+        for (const provider of ordered) {
+            const config = provider.browseView?.getSettingsConfig?.() || { browseSortOptions: [], followingSortOptions: [], viewModes: [] };
+            const defaults = savedDefaults[provider.id] || {};
+            const item = document.createElement('div');
+            item.className = 'provider-order-item';
+            item.dataset.providerId = provider.id;
+            item.draggable = true;
+
+            // Build default view dropdown (only for providers with mode toggle)
+            let viewSelect = '';
+            if (config.viewModes.length > 0) {
+                const viewOpts = config.viewModes.map(m =>
+                    `<option value="${m.value}"${defaults.view === m.value ? ' selected' : ''}>${m.label}</option>`
+                ).join('');
+                viewSelect = `<select class="provider-default-view" data-provider="${provider.id}" title="Default view mode">
+                    <option value="">View: Auto</option>${viewOpts}
+                </select>`;
+            }
+
+            // Build default sort dropdown — shows browse sorts initially, adapts to selected view
+            const browseSorts = config.browseSortOptions || [];
+            const followSorts = config.followingSortOptions || [];
+            let sortOpts = '';
+            if (browseSorts.length > 0 || followSorts.length > 0) {
+                const currentView = defaults.view || '';
+                const isFollowView = currentView === 'following' || currentView === 'timeline';
+                const activeList = (isFollowView && followSorts.length > 0) ? followSorts : browseSorts;
+                sortOpts = activeList.map(s =>
+                    `<option value="${s.value}"${defaults.sort === s.value ? ' selected' : ''}>${s.label}</option>`
+                ).join('');
+            }
+            let sortSelect = '';
+            if (sortOpts) {
+                sortSelect = `<select class="provider-default-sort" data-provider="${provider.id}" title="Default sort order">
+                    <option value="">Sort: Auto</option>${sortOpts}
+                </select>`;
+            }
+
+            item.innerHTML = `
+                <i class="fa-solid fa-grip-vertical drag-handle"></i>
+                <i class="fa-solid ${provider.icon || 'fa-globe'} provider-order-icon"></i>
+                <span class="provider-order-name">${provider.name}</span>
+                <span class="provider-order-badge">Default</span>
+                <div class="provider-order-defaults">
+                    ${viewSelect}${sortSelect}
+                </div>
+            `;
+
+            container.appendChild(item);
+        }
+
+        // Wire up view→sort dependency: when view changes, rebuild sort options
+        container.querySelectorAll('.provider-default-view').forEach(viewSel => {
+            viewSel.addEventListener('change', () => {
+                const pid = viewSel.dataset.provider;
+                const prov = viewProviders.find(p => p.id === pid);
+                if (!prov) return;
+                const cfg = prov.browseView?.getSettingsConfig?.() || {};
+                const sortSel = container.querySelector(`.provider-default-sort[data-provider="${pid}"]`);
+                if (!sortSel) return;
+                const isFollow = viewSel.value === 'following' || viewSel.value === 'timeline';
+                const list = (isFollow && cfg.followingSortOptions?.length > 0) ? cfg.followingSortOptions : (cfg.browseSortOptions || []);
+                const prevVal = sortSel.value;
+                sortSel.innerHTML = '<option value="">Sort: Auto</option>' + list.map(s =>
+                    `<option value="${s.value}">${s.label}</option>`
+                ).join('');
+                // Restore previous value if still valid
+                if ([...sortSel.options].some(o => o.value === prevVal)) sortSel.value = prevVal;
+                else sortSel.value = '';
+            });
+        });
+
+        // Drag-and-drop reordering
+        let dragItem = null;
+        container.addEventListener('dragstart', (e) => {
+            const item = e.target.closest('.provider-order-item');
+            if (!item) return;
+            dragItem = item;
+            item.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', item.dataset.providerId);
+        });
+        container.addEventListener('dragend', () => {
+            if (dragItem) dragItem.classList.remove('dragging');
+            dragItem = null;
+            container.querySelectorAll('.provider-order-item').forEach(el => el.classList.remove('drag-over'));
+        });
+        container.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            const target = e.target.closest('.provider-order-item');
+            if (!target || target === dragItem) return;
+            container.querySelectorAll('.provider-order-item').forEach(el => el.classList.remove('drag-over'));
+            target.classList.add('drag-over');
+        });
+        container.addEventListener('dragleave', (e) => {
+            const target = e.target.closest('.provider-order-item');
+            if (target) target.classList.remove('drag-over');
+        });
+        container.addEventListener('drop', (e) => {
+            e.preventDefault();
+            const target = e.target.closest('.provider-order-item');
+            if (!target || !dragItem || target === dragItem) return;
+            target.classList.remove('drag-over');
+            // Insert dragged item before the drop target
+            container.insertBefore(dragItem, target);
+        });
+
+        // Touch drag support (mobile)
+        let touchItem = null;
+        let touchClone = null;
+        let touchStartY = 0;
+        container.addEventListener('touchstart', (e) => {
+            const handle = e.target.closest('.drag-handle');
+            if (!handle) return;
+            const item = handle.closest('.provider-order-item');
+            if (!item) return;
+            touchItem = item;
+            touchStartY = e.touches[0].clientY;
+            item.classList.add('dragging');
+        }, { passive: true });
+        container.addEventListener('touchmove', (e) => {
+            if (!touchItem) return;
+            e.preventDefault();
+            const y = e.touches[0].clientY;
+            const items = [...container.querySelectorAll('.provider-order-item')];
+            items.forEach(el => el.classList.remove('drag-over'));
+            for (const item of items) {
+                if (item === touchItem) continue;
+                const rect = item.getBoundingClientRect();
+                if (y >= rect.top && y <= rect.bottom) {
+                    item.classList.add('drag-over');
+                    break;
+                }
+            }
+        }, { passive: false });
+        container.addEventListener('touchend', () => {
+            if (!touchItem) return;
+            const overItem = container.querySelector('.provider-order-item.drag-over');
+            if (overItem && overItem !== touchItem) {
+                container.insertBefore(touchItem, overItem);
+            }
+            touchItem.classList.remove('dragging');
+            container.querySelectorAll('.provider-order-item').forEach(el => el.classList.remove('drag-over'));
+            touchItem = null;
+        });
+    }
+
+    function readProviderOrderFromUI() {
+        const container = document.getElementById('providerOrderList');
+        if (!container) return { providerOrder: null, providerDefaults: {} };
+
+        const items = container.querySelectorAll('.provider-order-item');
+        const order = [];
+        const defaults = {};
+
+        items.forEach(item => {
+            const pid = item.dataset.providerId;
+            if (!pid) return;
+            order.push(pid);
+
+            const viewSel = item.querySelector('.provider-default-view');
+            const sortSel = item.querySelector('.provider-default-sort');
+            const viewVal = viewSel?.value || '';
+            const sortVal = sortSel?.value || '';
+
+            if (viewVal || sortVal) {
+                defaults[pid] = {};
+                if (viewVal) defaults[pid].view = viewVal;
+                if (sortVal) defaults[pid].sort = sortVal;
+            }
+        });
+
+        return { providerOrder: order.length > 0 ? order : null, providerDefaults: defaults };
+    }
+
+    function resetProviderOrderUI() {
+        const container = document.getElementById('providerOrderList');
+        if (!container) return;
+        container.innerHTML = '';
+
+        const registry = window.ProviderRegistry;
+        if (!registry) return;
+        const viewProviders = registry.getAllProviders().filter(p => p.hasView);
+        for (const provider of viewProviders) {
+            const config = provider.browseView?.getSettingsConfig?.() || { browseSortOptions: [], followingSortOptions: [], viewModes: [] };
+            const item = document.createElement('div');
+            item.className = 'provider-order-item';
+            item.dataset.providerId = provider.id;
+            item.draggable = true;
+
+            let viewSelect = '';
+            if (config.viewModes.length > 0) {
+                const viewOpts = config.viewModes.map(m =>
+                    `<option value="${m.value}">${m.label}</option>`
+                ).join('');
+                viewSelect = `<select class="provider-default-view" data-provider="${provider.id}" title="Default view mode">
+                    <option value="" selected>View: Auto</option>${viewOpts}
+                </select>`;
+            }
+
+            const browseSorts = config.browseSortOptions || [];
+            let sortSelect = '';
+            if (browseSorts.length > 0) {
+                const sortOpts = browseSorts.map(s =>
+                    `<option value="${s.value}">${s.label}</option>`
+                ).join('');
+                sortSelect = `<select class="provider-default-sort" data-provider="${provider.id}" title="Default sort order">
+                    <option value="" selected>Sort: Auto</option>${sortOpts}
+                </select>`;
+            }
+
+            item.innerHTML = `
+                <i class="fa-solid fa-grip-vertical drag-handle"></i>
+                <i class="fa-solid ${provider.icon || 'fa-globe'} provider-order-icon"></i>
+                <span class="provider-order-name">${provider.name}</span>
+                <span class="provider-order-badge">Default</span>
+                <div class="provider-order-defaults">
+                    ${viewSelect}${sortSelect}
+                </div>
+            `;
+            container.appendChild(item);
+        }
+
+        // Re-wire view→sort dependency for providers with mode toggle
+        container.querySelectorAll('.provider-default-view').forEach(viewSel => {
+            viewSel.addEventListener('change', () => {
+                const pid = viewSel.dataset.provider;
+                const prov = viewProviders.find(p => p.id === pid);
+                if (!prov) return;
+                const cfg = prov.browseView?.getSettingsConfig?.() || {};
+                const sortSel = container.querySelector(`.provider-default-sort[data-provider="${pid}"]`);
+                if (!sortSel) return;
+                const isFollow = viewSel.value === 'following' || viewSel.value === 'timeline';
+                const list = (isFollow && cfg.followingSortOptions?.length > 0) ? cfg.followingSortOptions : (cfg.browseSortOptions || []);
+                sortSel.innerHTML = '<option value="">Sort: Auto</option>' + list.map(s =>
+                    `<option value="${s.value}">${s.label}</option>`
+                ).join('');
+                sortSel.value = '';
+            });
+        });
+    }
+
     // Open modal
     settingsBtn.onclick = () => {
         chubTokenInput.value = getSetting('chubToken') || '';
@@ -795,6 +1077,9 @@ function setupSettingsModal() {
         if (pygmalionPasswordInput) pygmalionPasswordInput.value = getSetting('pygmalionPassword') || '';
         if (pygmalionRememberCredsCheckbox) pygmalionRememberCredsCheckbox.checked = getSetting('pygmalionRememberCredentials') || false;
         if (ctCookieInput) ctCookieInput.value = getSetting('ctCookie') || '';
+        if (wyvernEmailInput) wyvernEmailInput.value = getSetting('wyvernEmail') || '';
+        if (wyvernPasswordInput) wyvernPasswordInput.value = getSetting('wyvernPassword') || '';
+        if (wyvernRememberCredsCheckbox) wyvernRememberCredsCheckbox.checked = getSetting('wyvernRememberCredentials') || false;
         
         // Check cl-helper plugin availability for provider sections
         checkClHelperPlugin(pygmalionPluginBanner, pygmalionSettingsFields, ctPluginBanner, ctSettingsFields);
@@ -848,6 +1133,9 @@ function setupSettingsModal() {
         if (showInfoTabCheckbox) {
             showInfoTabCheckbox.checked = getSetting('showInfoTab') || false;
         }
+        if (exportAsLinksCheckbox) {
+            exportAsLinksCheckbox.checked = getSetting('exportAsLinks') || false;
+        }
         if (showProviderTaglineCheckbox) {
             showProviderTaglineCheckbox.checked = getSetting('showProviderTagline') !== false;
         }
@@ -880,6 +1168,9 @@ function setupSettingsModal() {
         // Update migration status
         updateGalleryMigrationStatus();
         updateImageRelocationStatus();
+
+        // Provider Order & Defaults
+        buildProviderOrderUI();
         
         // Reset to first section
         switchSettingsSection('general');
@@ -926,6 +1217,14 @@ function setupSettingsModal() {
             togglePygmalionPasswordVisibility.innerHTML = `<i class="fa-solid fa-eye${isPassword ? '-slash' : ''}"></i>`;
         };
     }
+
+    if (toggleWyvernPasswordVisibility && wyvernPasswordInput) {
+        toggleWyvernPasswordVisibility.onclick = () => {
+            const isPassword = wyvernPasswordInput.type === 'password';
+            wyvernPasswordInput.type = isPassword ? 'text' : 'password';
+            toggleWyvernPasswordVisibility.innerHTML = `<i class="fa-solid fa-eye${isPassword ? '-slash' : ''}"></i>`;
+        };
+    }
     
     // Slider value display
     minScoreSlider.oninput = () => {
@@ -956,6 +1255,9 @@ function setupSettingsModal() {
             pygmalionPassword: pygmalionPasswordInput ? (pygmalionPasswordInput.value || null) : null,
             pygmalionRememberCredentials: pygmalionRememberCredsCheckbox ? pygmalionRememberCredsCheckbox.checked : false,
             ctCookie: ctCookieInput ? (ctCookieInput.value?.trim() || null) : null,
+            wyvernEmail: wyvernEmailInput ? (wyvernEmailInput.value || null) : null,
+            wyvernPassword: wyvernPasswordInput ? (wyvernPasswordInput.value || null) : null,
+            wyvernRememberCredentials: wyvernRememberCredsCheckbox ? wyvernRememberCredsCheckbox.checked : false,
             duplicateMinScore: parseInt(minScoreSlider.value),
             searchInName: searchNameCheckbox.checked,
             searchInTags: searchTagsCheckbox.checked,
@@ -973,12 +1275,14 @@ function setupSettingsModal() {
             replaceUserPlaceholder: replaceUserPlaceholderCheckbox ? replaceUserPlaceholderCheckbox.checked : true,
             debugMode: debugModeCheckbox ? debugModeCheckbox.checked : false,
             showInfoTab: showInfoTabCheckbox ? showInfoTabCheckbox.checked : false,
+            exportAsLinks: exportAsLinksCheckbox ? exportAsLinksCheckbox.checked : false,
             showProviderTagline: showProviderTaglineCheckbox ? showProviderTaglineCheckbox.checked : true,
             allowRichTagline: allowRichTaglineCheckbox ? allowRichTaglineCheckbox.checked : false,
             uniqueGalleryFolders: uniqueGalleryFoldersCheckbox ? uniqueGalleryFoldersCheckbox.checked : false,
             chubUseV4Api: chubUseV4ApiCheckbox ? chubUseV4ApiCheckbox.checked : false,
             autoSnapshotOnEdit: autoSnapshotOnEditCheckbox ? autoSnapshotOnEditCheckbox.checked : false,
             maxAutoBackups: maxAutoBackupsInput ? parseInt(maxAutoBackupsInput.value) || 10 : 10,
+            ...readProviderOrderFromUI(),
         });
         
         // If unique gallery folders was just enabled, register overrides for all characters with gallery_ids
@@ -1021,6 +1325,27 @@ function setupSettingsModal() {
         
         showToast('Settings saved', 'success');
         closeModal();
+
+        // Update gallery sync indicator visibility
+        if (typeof window.updateGallerySyncWarning === 'function') {
+            window.updateGallerySyncWarning();
+        }
+        const menuGSync = document.getElementById('menuGallerySyncBtn');
+        if (menuGSync) menuGSync.style.display = uniqueFoldersEnabled ? '' : 'none';
+        const mobileSyncItem = document.querySelector('[data-gallery-sync-item]');
+        if (mobileSyncItem) mobileSyncItem.style.display = uniqueFoldersEnabled ? '' : 'none';
+
+        // Rebuild provider selector to reflect new order
+        providerSelectorInitialized = false;
+        const selectorArea = document.getElementById('providerSelectorArea');
+        if (selectorArea) {
+            const cs = selectorArea.querySelector('select')?._customSelect;
+            if (cs?.menu) cs.menu.remove();
+            selectorArea.innerHTML = '';
+        }
+        if (currentView === 'online') {
+            activateOnlineProvider(lastOnlineProviderId);
+        }
     };
     
     // Save settings
@@ -1060,6 +1385,9 @@ function setupSettingsModal() {
         if (pygmalionPasswordInput) pygmalionPasswordInput.value = '';
         if (pygmalionRememberCredsCheckbox) pygmalionRememberCredsCheckbox.checked = false;
         if (ctCookieInput) ctCookieInput.value = '';
+        if (wyvernEmailInput) wyvernEmailInput.value = '';
+        if (wyvernPasswordInput) wyvernPasswordInput.value = '';
+        if (wyvernRememberCredsCheckbox) wyvernRememberCredsCheckbox.checked = false;
         minScoreSlider.value = DEFAULT_SETTINGS.duplicateMinScore;
         minScoreValue.textContent = String(DEFAULT_SETTINGS.duplicateMinScore);
         searchNameCheckbox.checked = DEFAULT_SETTINGS.searchInName;
@@ -1089,6 +1417,9 @@ function setupSettingsModal() {
         if (showProviderTaglineCheckbox) {
             showProviderTaglineCheckbox.checked = DEFAULT_SETTINGS.showProviderTagline;
         }
+
+        // Provider Order & Defaults — reset to registration order
+        resetProviderOrderUI();
         
         // Apply default highlight color immediately
         applyHighlightColor(DEFAULT_SETTINGS.highlightColor);
@@ -1223,9 +1554,67 @@ function setupSettingsModal() {
         };
     }
     
+    // Session Validation - Wyvern
+    const validateWyvernBtn = document.getElementById('validateWyvernBtn');
+    if (validateWyvernBtn && wyvernEmailInput && wyvernPasswordInput) {
+        validateWyvernBtn.onclick = async (e) => {
+            e.preventDefault();
+            validateWyvernBtn.classList.remove('success', 'error');
+            const originalHtml = '<i class="fa-solid fa-check"></i>';
+            validateWyvernBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+            validateWyvernBtn.disabled = true;
+
+            try {
+                if (!window.wyvernLoginCheck) {
+                    showToast('Login module not ready', 'error');
+                    throw new Error('Module not ready');
+                }
+                
+                const email = wyvernEmailInput.value;
+                const password = wyvernPasswordInput.value;
+                if (!email || !password) {
+                    showToast('Email and password required', 'warning');
+                    validateWyvernBtn.classList.add('error');
+                    return;
+                }
+
+                const result = await window.wyvernLoginCheck(email, password);
+                if (result.ok) {
+                    showToast('Wyvern login successful!', 'success');
+                    validateWyvernBtn.classList.add('success');
+                } else {
+                    showToast(`Login failed: ${result.error}`, 'error');
+                    validateWyvernBtn.classList.add('error');
+                    validateWyvernBtn.innerHTML = '<i class="fa-solid fa-times"></i>';
+                }
+            } catch (err) {
+                if (!validateWyvernBtn.classList.contains('error')) {
+                    showToast(`Login error: ${err.message}`, 'error');
+                    validateWyvernBtn.classList.add('error');
+                    validateWyvernBtn.innerHTML = '<i class="fa-solid fa-exclamation"></i>';
+                }
+            } finally {
+                validateWyvernBtn.disabled = false;
+                if (validateWyvernBtn.classList.contains('success')) {
+                    validateWyvernBtn.innerHTML = '<i class="fa-solid fa-check"></i>';
+                }
+                setTimeout(() => {
+                    validateWyvernBtn.classList.remove('success', 'error');
+                    validateWyvernBtn.innerHTML = originalHtml;
+                }, 3000);
+            }
+        };
+    }
+
     // Update gallery migration status display
     function updateGalleryMigrationStatus() {
         if (!galleryMigrationStatus || !galleryMigrationStatusText) return;
+        
+        if (window.extensionsRecoveryInProgress) {
+            galleryMigrationStatus.style.display = 'block';
+            galleryMigrationStatusText.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Recovering character data — gallery status will update when done.`;
+            return;
+        }
         
         const needsId = countCharactersNeedingGalleryId();
         const needsRegistration = countCharactersNeedingFolderRegistration();
@@ -1267,6 +1656,10 @@ function setupSettingsModal() {
             // Feature must be enabled to assign IDs
             if (!getSetting('uniqueGalleryFolders')) {
                 showToast('Enable "Use unique gallery folder names" first!', 'error');
+                return;
+            }
+            if (window.extensionsRecoveryInProgress) {
+                showToast('Character data is still loading — please wait', 'warning');
                 return;
             }
             
@@ -1447,6 +1840,10 @@ function setupSettingsModal() {
     // Image relocation button handler
     if (relocateSharedImagesBtn) {
         relocateSharedImagesBtn.onclick = async () => {
+            if (window.extensionsRecoveryInProgress) {
+                showToast('Character data is still loading — please wait', 'warning');
+                return;
+            }
             const sharedNames = findCharactersWithSharedNames();
             
             if (sharedNames.size === 0) {
@@ -1739,6 +2136,10 @@ function setupSettingsModal() {
                 showToast('Gallery sync module not loaded', 'error');
                 return;
             }
+            if (window.extensionsRecoveryInProgress) {
+                showToast('Character data is still loading — please wait', 'warning');
+                return;
+            }
             
             gallerySyncStatus.innerHTML = '<div class="sync-loading"><i class="fa-solid fa-spinner fa-spin"></i> Running audit...</div>';
             
@@ -1760,6 +2161,10 @@ function setupSettingsModal() {
         gallerySyncFullBtn.onclick = async () => {
             if (typeof window.fullGallerySync !== 'function') {
                 showToast('Gallery sync module not loaded', 'error');
+                return;
+            }
+            if (window.extensionsRecoveryInProgress) {
+                showToast('Character data is still loading — please wait', 'warning');
                 return;
             }
             
@@ -1847,6 +2252,10 @@ function setupSettingsModal() {
                 showToast('Gallery sync module not loaded', 'error');
                 return;
             }
+            if (window.extensionsRecoveryInProgress) {
+                showToast('Character data is still loading — please wait', 'warning');
+                return;
+            }
             
             // Run audit first
             const audit = await window.auditGalleryIntegrity();
@@ -1879,6 +2288,12 @@ function setupSettingsModal() {
             }
         };
     }
+
+    // When extensions recovery finishes, refresh gallery migration status so the
+    // settings panel shows real counts instead of the "recovering" placeholder.
+    document.addEventListener('cl-extensions-recovered', () => {
+        updateGalleryMigrationStatus();
+    });
 }
 
 // Helper to get cookie value
@@ -5215,6 +5630,9 @@ async function hydrateCharacter(char) {
             char.data.extensions = full.data.extensions;
         }
 
+        if (full.spec) char.spec = full.spec;
+        if (full.spec_version) char.spec_version = full.spec_version;
+
         char._slim = false;
         return char;
     } catch (e) {
@@ -5230,7 +5648,7 @@ async function hydrateCharacter(char) {
  * batches and patches their extensions onto our slim objects.
  */
 async function recoverShallowExtensions() {
-    const BATCH_SIZE = 15;
+    const BATCH_SIZE = 50;
     const chars = [...allCharacters];
     let recovered = 0;
 
@@ -5249,6 +5667,8 @@ async function recoverShallowExtensions() {
                     // Patch extensions onto the slim object
                     if (!char.data) char.data = {};
                     char.data.extensions = full.data.extensions;
+                    if (full.spec) char.spec = full.spec;
+                    if (full.spec_version) char.spec_version = full.spec_version;
                     recovered++;
                 } catch { /* skip */ }
             })
@@ -5315,6 +5735,7 @@ function processAndRender(data) {
     // Provider links, gallery IDs, version UIDs all live in data.extensions.
     if (isSTShallow) {
         window.extensionsRecoveryInProgress = true;
+        window.updateGallerySyncWarning?.();
         recoverShallowExtensions();
     }
     
@@ -5570,13 +5991,22 @@ let cachedCardHeight = 0;
 let cachedCardWidth = 0;
 let cachedGridWidth = 0;       // cached grid.clientWidth — invalidated on resize
 let cachedClientHeight = 0;    // cached scrollContainer.clientHeight — invalidated on resize
+let cachedGridCols = 0;        // actual CSS column count — invalidated on resize
 let characterGridDelegatesInitialized = false;
 let currentCharByAvatar = new Map();
 
 // Card dimensions (will be measured from actual cards)
 const CARD_MIN_WIDTH = 200; // Matches CSS minmax(200px, 1fr)
 const CARD_ASPECT_RATIO = 2 / 3; // width/height for portrait cards
-const GRID_GAP = 20; // Matches CSS gap: 20px
+const GRID_GAP_FALLBACK = 20;
+let cachedGridGap = 0; // Read from CSS computed styles — invalidated on resize
+
+function getGridGap() {
+    if (cachedGridGap > 0) return cachedGridGap;
+    const grid = document.getElementById('characterGrid');
+    if (grid) cachedGridGap = parseInt(getComputedStyle(grid).rowGap, 10) || GRID_GAP_FALLBACK;
+    return cachedGridGap || GRID_GAP_FALLBACK;
+}
 
 /**
  * Main render function - sets up virtual scrolling
@@ -5601,6 +6031,7 @@ function renderGrid(chars) {
     cachedCardHeight = 0;
     cachedGridWidth = 0;
     cachedClientHeight = 0;
+    cachedGridCols = 0;
     
     // Remove any existing sentinel (not needed with virtual scroll)
     const existingSentinel = document.getElementById('lazyLoadSentinel');
@@ -5628,36 +6059,48 @@ function renderGrid(chars) {
  */
 function updateGridHeight(grid) {
     const gridWidth = grid.clientWidth || 800;
-    const { cols, cardHeight } = getGridMetrics(gridWidth);
+    const { cols, cardHeight, gap } = getGridMetrics(gridWidth);
     
     const totalRows = Math.ceil(currentCharsList.length / cols);
-    const totalHeight = (totalRows * cardHeight) + ((totalRows - 1) * GRID_GAP);
+    const totalHeight = (totalRows * cardHeight) + ((totalRows - 1) * gap);
     
     grid.style.minHeight = `${totalHeight}px`;
 }
 
 /**
- * Get grid layout metrics
+ * Get grid layout metrics — reads actual CSS column count to stay in sync with auto-fill.
  */
 function getGridMetrics(gridWidth) {
-    // Use cached values if available (only re-measure when explicitly invalidated)
-    if (cachedCardWidth > 0 && cachedCardHeight > 0) {
-        const cols = Math.max(1, Math.floor((gridWidth + GRID_GAP) / (cachedCardWidth + GRID_GAP)));
-        return { cols, cardWidth: cachedCardWidth, cardHeight: cachedCardHeight };
+    const gap = getGridGap();
+
+    if (cachedCardHeight > 0 && cachedGridCols > 0) {
+        return { cols: cachedGridCols, cardHeight: cachedCardHeight, gap };
     }
-    
-    // Measure from actual card if available
+
+    // Read actual column count from CSS resolved grid tracks
+    const grid = document.getElementById('characterGrid');
+    if (grid) {
+        const tracks = getComputedStyle(grid).gridTemplateColumns;
+        if (tracks && tracks !== 'none') {
+            cachedGridCols = tracks.split(' ').length;
+        }
+    }
+
+    // Measure card height from actual card if available
     const firstCard = document.querySelector('.char-card');
     if (firstCard) {
-        cachedCardWidth = firstCard.offsetWidth;
         cachedCardHeight = firstCard.offsetHeight;
+        cachedCardWidth = firstCard.offsetWidth;
     }
-    
-    const cardWidth = cachedCardWidth || CARD_MIN_WIDTH;
+
+    // Fallback column calculation only when no rendered grid is available
+    if (!cachedGridCols) {
+        const cardWidth = cachedCardWidth || CARD_MIN_WIDTH;
+        cachedGridCols = Math.max(1, Math.floor((gridWidth + gap) / (cardWidth + gap)));
+    }
+
     const cardHeight = cachedCardHeight || Math.round(CARD_MIN_WIDTH / CARD_ASPECT_RATIO);
-    const cols = Math.max(1, Math.floor((gridWidth + GRID_GAP) / (cardWidth + GRID_GAP)));
-    
-    return { cols, cardWidth, cardHeight };
+    return { cols: cachedGridCols, cardHeight, gap };
 }
 
 /**
@@ -5672,11 +6115,12 @@ function updateVisibleCards(grid, scrollContainer, force = false) {
     if (force || cachedClientHeight === 0) {
         cachedClientHeight = scrollContainer.clientHeight;
         cachedGridWidth = grid.clientWidth || 800;
+        cachedGridCols = 0; // Re-read column count from CSS
     }
     const clientHeight = cachedClientHeight;
     const gridWidth = cachedGridWidth;
     
-    const { cols, cardHeight } = getGridMetrics(gridWidth);
+    const { cols, cardHeight, gap } = getGridMetrics(gridWidth);
     
     const RENDER_BUFFER_PX = clientHeight * 2.5;
     
@@ -5684,8 +6128,8 @@ function updateVisibleCards(grid, scrollContainer, force = false) {
     const PRELOAD_BUFFER_PX = clientHeight * 4;
     
     // Calculate visible row range
-    const startRow = Math.floor(Math.max(0, scrollTop - RENDER_BUFFER_PX) / (cardHeight + GRID_GAP));
-    const endRow = Math.ceil((scrollTop + clientHeight + RENDER_BUFFER_PX) / (cardHeight + GRID_GAP));
+    const startRow = Math.floor(Math.max(0, scrollTop - RENDER_BUFFER_PX) / (cardHeight + gap));
+    const endRow = Math.ceil((scrollTop + clientHeight + RENDER_BUFFER_PX) / (cardHeight + gap));
     
     const startIndex = startRow * cols;
     const endIndex = Math.min(currentCharsList.length, (endRow + 1) * cols);
@@ -5698,7 +6142,7 @@ function updateVisibleCards(grid, scrollContainer, force = false) {
     lastRenderedStartIndex = startIndex;
     lastRenderedEndIndex = endIndex;
     
-    const paddingTop = startRow * (cardHeight + GRID_GAP);
+    const paddingTop = startRow * (cardHeight + gap);
     grid.style.paddingTop = `${paddingTop}px`;
     
     // Remove cards outside the visible range
@@ -5777,8 +6221,8 @@ function updateVisibleCards(grid, scrollContainer, force = false) {
     // During fast scroll, every preload batch gets immediately aborted by the next
     // RAF frame — wasting CPU on AbortController + 12 fetch() calls per frame.
     if (force) {
-        const preloadStartRow = Math.floor((scrollTop + clientHeight) / (cardHeight + GRID_GAP));
-        const preloadEndRow = Math.ceil((scrollTop + clientHeight + PRELOAD_BUFFER_PX) / (cardHeight + GRID_GAP));
+        const preloadStartRow = Math.floor((scrollTop + clientHeight) / (cardHeight + gap));
+        const preloadEndRow = Math.ceil((scrollTop + clientHeight + PRELOAD_BUFFER_PX) / (cardHeight + gap));
         const preloadStartIndex = preloadStartRow * cols;
         const preloadEndIndex = Math.min(currentCharsList.length, preloadEndRow * cols);
 
@@ -5911,6 +6355,8 @@ window.addEventListener('resize', () => {
         cachedCardWidth = 0;
         cachedGridWidth = 0;
         cachedClientHeight = 0;
+        cachedGridGap = 0;
+        cachedGridCols = 0;
         const grid = document.getElementById('characterGrid');
         if (grid && currentCharsList.length > 0) {
             updateGridHeight(grid);
@@ -6218,7 +6664,8 @@ function renderGalleryImages(files, folderName) {
         visualMedia.forEach(({ fileName, type }, index) => {
             const mediaUrl = `/user/images/${encodeURIComponent(safeFolderName)}/${encodeURIComponent(fileName)}`;
             const mediaContainer = document.createElement('div');
-            mediaContainer.className = 'sprite-item';
+            const mediaIsGif = type === 'image' && /\.gif$/i.test(fileName);
+            mediaContainer.className = `sprite-item${mediaIsGif ? ' gif-thumb' : ''}`;
             
             if (type === 'video') {
                 // Video thumbnail with play icon overlay
@@ -6243,8 +6690,13 @@ function renderGalleryImages(files, folderName) {
             } else {
                 // Image thumbnail
                 mediaContainer.innerHTML = `
-                    <img src="${mediaUrl}" loading="lazy" title="${escapeHtml(fileName)}">
+                    <img src="${mediaUrl}" loading="lazy" decoding="async" data-gif="${mediaIsGif ? '1' : '0'}" title="${escapeHtml(fileName)}">
                 `;
+
+                if (mediaIsGif) {
+                    const thumbImg = mediaContainer.querySelector('img');
+                    freezeGifThumbnailImage(thumbImg);
+                }
                 
                 // Click handler to open gallery viewer at this image
                 mediaContainer.querySelector('img').addEventListener('click', () => {
@@ -6267,6 +6719,66 @@ function renderGalleryImages(files, folderName) {
     // Show empty state if no media at all
     if (imageFiles.length === 0 && videoFiles.length === 0 && audioFiles.length === 0) {
         renderSimpleEmpty(grid, 'No media found.');
+    }
+}
+
+function freezeGifThumbnailImage(imgEl, maxSize = 192) {
+    if (!imgEl || imgEl.dataset.gifThumbFrozen === '1' || imgEl.dataset.gifThumbPending === '1') return;
+    imgEl.dataset.gifThumbPending = '1';
+
+    const finalize = () => {
+        delete imgEl.dataset.gifThumbPending;
+    };
+
+    const renderPoster = () => {
+        if (!imgEl.isConnected || imgEl.dataset.gifThumbFrozen === '1') {
+            finalize();
+            return;
+        }
+
+        const src = imgEl.currentSrc || imgEl.src;
+        const w = imgEl.naturalWidth;
+        const h = imgEl.naturalHeight;
+        if (!src || src.startsWith('data:') || !w || !h) {
+            finalize();
+            return;
+        }
+
+        try {
+            const scale = Math.min(1, maxSize / Math.max(w, h));
+            const tw = Math.max(1, Math.round(w * scale));
+            const th = Math.max(1, Math.round(h * scale));
+            const canvas = document.createElement('canvas');
+            canvas.width = tw;
+            canvas.height = th;
+
+            const ctx = canvas.getContext('2d', { alpha: true });
+            if (!ctx) {
+                canvas.width = 0;
+                canvas.height = 0;
+                finalize();
+                return;
+            }
+
+            ctx.drawImage(imgEl, 0, 0, tw, th);
+            const dataUrl = canvas.toDataURL('image/webp', 0.82);
+            canvas.width = 0;
+            canvas.height = 0;
+
+            imgEl.src = dataUrl;
+            imgEl.dataset.gifThumbFrozen = '1';
+        } catch (e) {
+            // Keep original GIF thumbnail when poster conversion fails.
+        } finally {
+            finalize();
+        }
+    };
+
+    if (imgEl.complete && imgEl.naturalWidth > 0) {
+        renderPoster();
+    } else {
+        imgEl.addEventListener('load', renderPoster, { once: true });
+        imgEl.addEventListener('error', finalize, { once: true });
     }
 }
 
@@ -6619,6 +7131,8 @@ async function openModal(char) {
             if (!activeChar.data) activeChar.data = {};
             activeChar.data.extensions = char.data.extensions;
         }
+        if (char.spec) activeChar.spec = char.spec;
+        if (char.spec_version) activeChar.spec_version = char.spec_version;
         activeChar._slim = false;
         char = activeChar;
     }
@@ -10484,6 +10998,16 @@ function openBrowseExpandedView(sectionId, label, iconClass) {
  */
 function initBrowseExpandButtons() {
     document.addEventListener('click', (e) => {
+        // Inline toggle chevron — expand/collapse section content in place
+        const toggle = e.target.closest('.browse-section-inline-toggle');
+        if (toggle) {
+            e.preventDefault();
+            e.stopPropagation();
+            const section = toggle.closest('.browse-char-section');
+            if (section) section.classList.toggle('browse-section-collapsed');
+            return;
+        }
+
         const title = e.target.closest('.browse-section-title');
         if (!title) return;
         e.preventDefault();
@@ -10491,21 +11015,10 @@ function initBrowseExpandButtons() {
         const sectionId = title.dataset.section;
         const label = title.dataset.label;
         const iconClass = title.dataset.icon;
-        if (sectionId === 'chubCharAltGreetings') {
-            const greetings = window.currentChubAltGreetings || [];
-            const charName = document.getElementById('chubCharName')?.textContent || 'Character';
-            openAltGreetingsFullscreen(greetings, charName);
-            return;
-        }
-        if (sectionId === 'ctCharAltGreetings') {
-            const greetings = window.currentCtAltGreetings || [];
-            const charName = document.getElementById('ctCharName')?.textContent || 'Character';
-            openAltGreetingsFullscreen(greetings, charName);
-            return;
-        }
-        if (sectionId === 'pygCharAltGreetings') {
-            const greetings = window.currentPygAltGreetings || [];
-            const charName = document.getElementById('pygCharName')?.textContent || 'Character';
+        if (sectionId === 'browseAltGreetings') {
+            const greetings = window.currentBrowseAltGreetings || [];
+            const modal = title.closest('.browse-char-modal');
+            const charName = modal?.querySelector('.modal-header h2')?.textContent || 'Character';
             openAltGreetingsFullscreen(greetings, charName);
             return;
         }
@@ -10522,92 +11035,97 @@ function performSearch() {
     const useAuthor = document.getElementById('searchAuthor').checked;
     const useNotes = document.getElementById('searchNotes').checked;
     
-    // Check for special prefix syntaxes
-    const creatorMatch = rawQuery.match(/^creator:(.+)$/i);
-    const creatorFilter = creatorMatch ? creatorMatch[1].trim().toLowerCase() : null;
+    // ========================================================================
+    // Parse prefix tokens from query, leaving remaining text as free-text search.
+    // Supports multiple prefixes combined with free text, e.g.:
+    //   "creator:john linked:yes dark elf"
+    // ========================================================================
     
-    // Check for version: prefix
-    const versionMatch = rawQuery.match(/^version:(.+)$/i);
-    const versionFilter = versionMatch ? versionMatch[1].trim().toLowerCase() : null;
+    const prefixPattern = /(?:^|\s)((?:creator|version|gallery|uid|favorite|fav|linked|chub|janny|charactertavern|ct|pygmalion|wyvern):(?:[^\s]+))/gi;
     
-    // Check for gallery: prefix — matches data.extensions.gallery_id
-    const galleryMatch = rawQuery.match(/^gallery:(.+)$/i);
-    const galleryFilter = galleryMatch ? galleryMatch[1].trim().toLowerCase() : null;
-    
-    // Check for uid: prefix — matches data.extensions.version_uid
-    const uidMatch = rawQuery.match(/^uid:(.+)$/i);
-    const uidFilter = uidMatch ? uidMatch[1].trim().toLowerCase() : null;
-    
-    // Check for favorite: prefix (favorite:yes, favorite:no, fav:yes, fav:no)
-    const favoriteMatch = rawQuery.match(/^(?:favorite|fav):(yes|no|true|false)$/i);
-    const favoriteFilter = favoriteMatch ? favoriteMatch[1].toLowerCase() : null;
-    const filterFavoriteYes = favoriteFilter === 'yes' || favoriteFilter === 'true';
-    const filterFavoriteNo = favoriteFilter === 'no' || favoriteFilter === 'false';
-    
-    // Check for link filter prefixes:
-    //   linked:yes/no  — any provider
-    //   chub:yes/no    — ChubAI only
-    //   janny:yes/no   — JanitorAI only
-    //   charactertavern:yes/no or ct:yes/no — CharacterTavern only
-    const linkMatch = rawQuery.match(/^(?:linked|chub|janny|charactertavern|ct):(yes|no|true|false|linked|unlinked)$/i);
+    let creatorFilter = null;
+    let versionFilter = null;
+    let galleryFilter = null;
+    let uidFilter = null;
+    let favoriteFilter = null;
+    let filterFavoriteYes = false;
+    let filterFavoriteNo = false;
     let linkFilterPrefix = null;
     let linkFilterWantLinked = false;
-    if (linkMatch) {
-        linkFilterPrefix = rawQuery.split(':')[0].toLowerCase();
-        const val = linkMatch[1].toLowerCase();
-        linkFilterWantLinked = val === 'yes' || val === 'true' || val === 'linked';
+    
+    let query = rawQuery;
+    let match;
+    
+    while ((match = prefixPattern.exec(rawQuery)) !== null) {
+        const token = match[1];
+        const colonIdx = token.indexOf(':');
+        const prefix = token.substring(0, colonIdx).toLowerCase();
+        const value = token.substring(colonIdx + 1).trim().toLowerCase();
+        if (!value) continue;
+        
+        query = query.replace(token, '');
+        
+        if (prefix === 'creator') {
+            creatorFilter = value;
+        } else if (prefix === 'version') {
+            versionFilter = value;
+        } else if (prefix === 'gallery') {
+            galleryFilter = value;
+        } else if (prefix === 'uid') {
+            uidFilter = value;
+        } else if (prefix === 'favorite' || prefix === 'fav') {
+            favoriteFilter = value;
+            filterFavoriteYes = value === 'yes' || value === 'true';
+            filterFavoriteNo = value === 'no' || value === 'false';
+        } else if (['linked', 'chub', 'janny', 'charactertavern', 'ct', 'pygmalion', 'wyvern'].includes(prefix)) {
+            linkFilterPrefix = prefix;
+            linkFilterWantLinked = value === 'yes' || value === 'true' || value === 'linked';
+        }
     }
     
-    // Clean query: remove special prefixes
-    let query = rawQuery.toLowerCase();
-    if (creatorFilter) query = '';
-    if (versionFilter) query = '';
-    if (galleryFilter) query = '';
-    if (uidFilter) query = '';
-    if (favoriteFilter !== null) query = '';
-    if (linkFilterPrefix !== null) query = '';
+    query = query.trim().toLowerCase();
 
     const filtered = allCharacters.filter(c => {
-        let matchesSearch = false;
         
-        // Special creator: filter - exact creator match only
+        // Prefix filters: each is an AND constraint
+        
         if (creatorFilter) {
-            // Use pre-computed _lowerCreator instead of toLowerCase() per iteration
-            return c._lowerCreator === creatorFilter || c._lowerCreator.includes(creatorFilter);
+            if (!(c._lowerCreator === creatorFilter || c._lowerCreator.includes(creatorFilter))) return false;
         }
         
-        // Special version: filter - match character_version field
         if (versionFilter) {
             const version = (c.character_version || (c.data ? c.data.character_version : "") || "").toLowerCase();
             if (versionFilter === 'none' || versionFilter === 'empty') {
-                return !version;
+                if (version) return false;
+            } else {
+                if (!(version === versionFilter || version.includes(versionFilter))) return false;
             }
-            return version === versionFilter || version.includes(versionFilter);
         }
         
-        // Special gallery: filter - match data.extensions.gallery_id
         if (galleryFilter) {
             const gid = (c.data?.extensions?.gallery_id || '').toLowerCase();
-            if (galleryFilter === 'none' || galleryFilter === 'empty') return !gid;
-            return gid === galleryFilter || gid.includes(galleryFilter);
+            if (galleryFilter === 'none' || galleryFilter === 'empty') {
+                if (gid) return false;
+            } else {
+                if (!(gid === galleryFilter || gid.includes(galleryFilter))) return false;
+            }
         }
         
-        // Special uid: filter - match data.extensions.version_uid
         if (uidFilter) {
             const uid = (c.data?.extensions?.version_uid || '').toLowerCase();
-            if (uidFilter === 'none' || uidFilter === 'empty') return !uid;
-            return uid === uidFilter || uid.includes(uidFilter);
+            if (uidFilter === 'none' || uidFilter === 'empty') {
+                if (uid) return false;
+            } else {
+                if (!(uid === uidFilter || uid.includes(uidFilter))) return false;
+            }
         }
         
-        // Special favorite: filter from search bar
         if (favoriteFilter !== null) {
             const isFav = isCharacterFavorite(c);
             if (filterFavoriteYes && !isFav) return false;
             if (filterFavoriteNo && isFav) return false;
-            return true;
         }
         
-        // Provider link filter
         if (linkFilterPrefix !== null) {
             let isLinked = false;
             if (linkFilterPrefix === 'linked') {
@@ -10616,13 +11134,14 @@ function performSearch() {
                 const provId = linkFilterPrefix === 'chub' ? 'chub'
                     : linkFilterPrefix === 'janny' ? 'jannyai'
                     : (linkFilterPrefix === 'charactertavern' || linkFilterPrefix === 'ct') ? 'chartavern'
+                    : linkFilterPrefix === 'pygmalion' ? 'pygmalion'
+                    : linkFilterPrefix === 'wyvern' ? 'wyvern'
                     : null;
                 const prov = provId ? window.ProviderRegistry?.getProvider(provId) : null;
                 isLinked = prov ? !!prov.getLinkInfo(c) : false;
             }
             if (linkFilterWantLinked && !isLinked) return false;
             if (!linkFilterWantLinked && isLinked) return false;
-            return true;
         }
         
         // Favorites-only filter (from toolbar button)
@@ -10630,20 +11149,14 @@ function performSearch() {
             if (!isCharacterFavorite(c)) return false;
         }
 
-        // 1. Text Search Logic — uses pre-computed lowercase fields
+        // 1. Text Search Logic
+        let matchesSearch = false;
         if (!query) {
-            matchesSearch = true; // No text query? Everything matches text criteria
+            matchesSearch = true;
         } else {
-            // Name — c._lowerName pre-computed in prepareCharacterKeys
             if (useName && c._lowerName.includes(query)) matchesSearch = true;
-            
-            // Tags — c._tagsLower pre-computed in prepareCharacterKeys
             if (!matchesSearch && useTags && c._tagsLower.includes(query)) matchesSearch = true;
-            
-            // Author — c._lowerCreator pre-computed in prepareCharacterKeys
             if (!matchesSearch && useAuthor && c._lowerCreator.includes(query)) matchesSearch = true;
-
-            // Creator Notes (not pre-computed — large strings, rarely searched)
             if (!matchesSearch && useNotes) {
                  const notes = c.creator_notes || (c.data ? c.data.creator_notes : "") || "";
                  if (notes.toLowerCase().includes(query)) matchesSearch = true;
@@ -10654,7 +11167,6 @@ function performSearch() {
         if (activeTagFilters.size > 0) {
              const charTags = getTags(c);
              
-             // Get included and excluded tags
              const includedTags = [];
              const excludedTags = [];
              activeTagFilters.forEach((state, tag) => {
@@ -10662,12 +11174,10 @@ function performSearch() {
                  else if (state === 'exclude') excludedTags.push(tag);
              });
              
-             // If any excluded tags match, reject
              if (excludedTags.length > 0 && charTags.some(t => excludedTags.includes(t))) {
                  return false;
              }
              
-             // If there are included tags, must have at least one
              if (includedTags.length > 0 && !charTags.some(t => includedTags.includes(t))) {
                  return false;
              }
@@ -10850,6 +11360,7 @@ function setupEventListeners() {
         }
         const menuGallerySyncBtn = document.getElementById('menuGallerySyncBtn');
         if (menuGallerySyncBtn) {
+            if (!getSetting('uniqueGalleryFolders')) menuGallerySyncBtn.style.display = 'none';
             menuGallerySyncBtn.addEventListener('click', () => {
                 // Navigate to gallery sync settings instead of toggling the
                 // dropdown (which is inside a hidden container at narrow widths)
@@ -13389,14 +13900,14 @@ function updateProviderLinkIndicator(char) {
         indicator.title = `Linked to ${provider.name}: ${linkInfo.fullPath}`;
         indicator.dataset.providerId = provider.id;
         if (textSpan) {
-            textSpan.innerHTML = `${escapeHtml(provider.name)} <i class="fa-solid fa-check"></i>`;
+            textSpan.innerHTML = `<i class="provider-link-icon ${escapeHtml(provider.icon)}"></i><span class="provider-link-name">${escapeHtml(provider.name)}</span> <i class="fa-solid fa-check"></i>`;
         }
     } else {
         indicator.classList.remove('linked');
         indicator.title = 'Click to link to a provider';
         delete indicator.dataset.providerId;
         if (textSpan) {
-            textSpan.textContent = 'Link';
+            textSpan.innerHTML = '<span class="provider-link-name">Link</span>';
         }
     }
 }
@@ -13430,7 +13941,7 @@ function openProviderLinkModal() {
         charNameEl.title = charName;
     }
     
-    const statusIcon = document.getElementById('chubLinkStatusIcon');
+    const statusIcon = document.getElementById('providerLinkStatusIcon');
     
     // Check ALL providers via the registry, not just Chub
     const providerMatch = window.ProviderRegistry?.getCharacterProvider(activeChar) || null;
@@ -13462,7 +13973,7 @@ function openProviderLinkModal() {
         const viewBtn = document.getElementById('chubLinkViewInGalleryBtn');
         const galleryBtn = document.getElementById('chubLinkGalleryBtn');
         const versionsBtn = document.getElementById('chubLinkVersionsBtn');
-        const statsEl = document.getElementById('chubLinkStats');
+        const statsEl = document.getElementById('providerLinkStats');
         
         if (viewBtn) {
             viewBtn.classList.remove('hidden');
@@ -13473,18 +13984,21 @@ function openProviderLinkModal() {
         
         // Fetch live stats from the provider (if supported)
         if (typeof provider.fetchLinkStats === 'function') {
-            if (statsEl) statsEl.classList.remove('hidden');
-            const starsEl = document.getElementById('chubLinkStars');
-            const favoritesEl = document.getElementById('chubLinkFavorites');
-            const tokensEl = document.getElementById('chubLinkTokens');
-            if (starsEl) starsEl.textContent = '-';
-            if (favoritesEl) favoritesEl.textContent = '-';
-            if (tokensEl) tokensEl.textContent = '-';
+            if (statsEl) {
+                const fields = provider.linkStatFields || {};
+                const slots = ['stat1', 'stat2', 'stat3'];
+                statsEl.innerHTML = slots
+                    .filter(k => fields[k])
+                    .map(k => `<span><i class="${fields[k].icon}"></i> <span data-stat="${k}">-</span></span>`)
+                    .join('');
+                statsEl.classList.remove('hidden');
+            }
             provider.fetchLinkStats(linkInfo).then(stats => {
-                if (!stats) return;
-                if (starsEl) starsEl.textContent = stats.downloads != null ? formatNumber(stats.downloads) : '-';
-                if (favoritesEl) favoritesEl.textContent = stats.favorites != null ? formatNumber(stats.favorites) : '-';
-                if (tokensEl) tokensEl.textContent = stats.tokens != null ? formatNumber(stats.tokens) : '-';
+                if (!stats || !statsEl) return;
+                for (const key of ['stat1', 'stat2', 'stat3']) {
+                    const el = statsEl.querySelector(`[data-stat="${key}"]`);
+                    if (el) el.textContent = stats[key] != null ? formatNumber(stats[key]) : '-';
+                }
             });
         } else {
             if (statsEl) statsEl.classList.add('hidden');
@@ -13586,7 +14100,7 @@ async function searchProvidersForLink(name, creator) {
                         <div class="chub-link-search-result-creator">by ${escapeHtml(creator)} · ${escapeHtml(result.providerName)}</div>
                         <div class="chub-link-search-result-stats">${statsHtml}</div>
                     </div>
-                    <button class="action-btn primary small chub-link-search-result-btn" onclick="linkToSearchResult(this)">
+                    <button class="action-btn primary small chub-link-search-result-btn">
                         <i class="fa-solid fa-link"></i> Link
                     </button>
                 </div>
@@ -13643,8 +14157,7 @@ async function linkToSearchResult(btn) {
     }
 }
 
-// Make it globally accessible for onclick handlers
-window.linkToSearchResult = linkToSearchResult;
+
 
 /**
  * Link using a pasted URL — tries all providers' canHandleUrl/parseUrl
@@ -13896,6 +14409,11 @@ on('chubLinkSearchBtn', 'click', () => {
     const name = document.getElementById('chubLinkSearchName')?.value || '';
     const creator = document.getElementById('chubLinkSearchCreator')?.value || '';
     searchProvidersForLink(name, creator);
+});
+
+document.getElementById('chubLinkSearchResults')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.chub-link-search-result-btn');
+    if (btn) linkToSearchResult(btn);
 });
 
 // Allow Enter key to search
@@ -14492,7 +15010,7 @@ function renderBulkAutoLinkConfidentList() {
             const rating = opt.rating ? opt.rating.toFixed(1) : 'N/A';
             
             return `
-                <div class="bulk-auto-link-option${isSelected ? ' selected' : ''}" onclick="selectBulkAutoLinkConfidentOption(${idx}, ${optIdx})">
+                <div class="bulk-auto-link-option${isSelected ? ' selected' : ''}" data-item-idx="${idx}" data-opt-idx="${optIdx}">
                     <img src="${optAvatarUrl}" alt="" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect fill=%22%23333%22 width=%22100%22 height=%22100%22/></svg>'">
                     <div class="bulk-auto-link-option-info">
                         <span class="bulk-auto-link-option-name">${escapeHtml(opt.name || opt.fullPath.split('/').pop())}${isConfidentMatch ? ' <span class="confident-badge">Exact Match</span>' : ''}</span>
@@ -14505,8 +15023,8 @@ function renderBulkAutoLinkConfidentList() {
         
         return `
             <div class="bulk-auto-link-item bulk-auto-link-item-confident${item.selected ? ' selected' : ''}" data-type="confident" data-idx="${idx}">
-                <div class="bulk-auto-link-item-confident-header" onclick="toggleBulkAutoLinkConfidentExpand(${idx})">
-                    <input type="checkbox" class="bulk-auto-link-item-checkbox" ${item.selected ? 'checked' : ''} onclick="event.stopPropagation()" onchange="toggleBulkAutoLinkItem('confident', ${idx})">
+                <div class="bulk-auto-link-item-confident-header">
+                    <input type="checkbox" class="bulk-auto-link-item-checkbox" ${item.selected ? 'checked' : ''}>
                     <div class="bulk-auto-link-item-local">
                         <img src="${getCharacterAvatarUrl(item.char.avatar)}" alt="" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect fill=%22%23333%22 width=%22100%22 height=%22100%22/></svg>'">
                         <div class="bulk-auto-link-item-local-info">
@@ -14558,7 +15076,7 @@ function renderBulkAutoLinkUncertainList() {
             const rating = opt.rating ? opt.rating.toFixed(1) : 'N/A';
             
             return `
-                <div class="bulk-auto-link-option${isSelected ? ' selected' : ''}" onclick="selectBulkAutoLinkOption(${idx}, ${optIdx})">
+                <div class="bulk-auto-link-option${isSelected ? ' selected' : ''}" data-item-idx="${idx}" data-opt-idx="${optIdx}">
                     <img src="${optAvatarUrl}" alt="" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect fill=%22%23333%22 width=%22100%22 height=%22100%22/></svg>'">
                     <div class="bulk-auto-link-option-info">
                         <span class="bulk-auto-link-option-name">${escapeHtml(opt.name || opt.fullPath.split('/').pop())}</span>
@@ -14571,8 +15089,8 @@ function renderBulkAutoLinkUncertainList() {
         
         return `
             <div class="bulk-auto-link-item bulk-auto-link-item-uncertain${hasSelection ? ' selected' : ''}" data-type="uncertain" data-idx="${idx}">
-                <div class="bulk-auto-link-item-uncertain-header" onclick="toggleBulkAutoLinkExpand(${idx})">
-                    <input type="checkbox" class="bulk-auto-link-item-checkbox" ${hasSelection ? 'checked' : ''} onclick="event.stopPropagation()" onchange="clearBulkAutoLinkSelection(${idx})">
+                <div class="bulk-auto-link-item-uncertain-header">
+                    <input type="checkbox" class="bulk-auto-link-item-checkbox" ${hasSelection ? 'checked' : ''}>
                     <div class="bulk-auto-link-item-local">
                         <img src="${getCharacterAvatarUrl(item.char.avatar)}" alt="" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect fill=%22%23333%22 width=%22100%22 height=%22100%22/></svg>'">
                         <div class="bulk-auto-link-item-local-info">
@@ -14631,76 +15149,52 @@ function renderBulkAutoLinkNoMatchList() {
     }).join('');
 }
 
-/**
- * Toggle confident item selection
- */
-window.toggleBulkAutoLinkItem = function(type, idx) {
+function toggleBulkAutoLinkItem(type, idx) {
     if (type === 'confident') {
         bulkAutoLinkResults.confident[idx].selected = !bulkAutoLinkResults.confident[idx].selected;
         renderBulkAutoLinkConfidentList();
     }
     updateBulkAutoLinkSelectedCount();
-};
+}
 
-/**
- * Toggle confident item expansion
- */
-window.toggleBulkAutoLinkConfidentExpand = function(idx) {
+function toggleBulkAutoLinkConfidentExpand(idx) {
     const items = document.querySelectorAll('.bulk-auto-link-item-confident');
     items[idx]?.classList.toggle('expanded');
-};
+}
 
-/**
- * Select an option for confident item
- */
-window.selectBulkAutoLinkConfidentOption = function(itemIdx, optionIdx) {
+function selectBulkAutoLinkConfidentOption(itemIdx, optionIdx) {
     bulkAutoLinkResults.confident[itemIdx].selectedOption = optionIdx;
     bulkAutoLinkResults.confident[itemIdx].selected = true;
     renderBulkAutoLinkConfidentList();
     updateBulkAutoLinkSelectedCount();
-};
+}
 
-/**
- * Toggle uncertain item expansion
- */
-window.toggleBulkAutoLinkExpand = function(idx) {
+function toggleBulkAutoLinkExpand(idx) {
     const items = document.querySelectorAll('.bulk-auto-link-item-uncertain');
     items[idx]?.classList.toggle('expanded');
-};
+}
 
-/**
- * Select an option for uncertain item
- */
-window.selectBulkAutoLinkOption = function(itemIdx, optionIdx) {
+function selectBulkAutoLinkOption(itemIdx, optionIdx) {
     bulkAutoLinkResults.uncertain[itemIdx].selectedOption = optionIdx;
     renderBulkAutoLinkUncertainList();
     updateBulkAutoLinkSelectedCount();
-};
+}
 
-/**
- * Clear selection for uncertain item
- */
-window.clearBulkAutoLinkSelection = function(idx) {
-    const checkbox = event.target;
+function clearBulkAutoLinkSelection(idx, checkbox) {
     if (!checkbox.checked) {
         bulkAutoLinkResults.uncertain[idx].selectedOption = null;
         renderBulkAutoLinkUncertainList();
         updateBulkAutoLinkSelectedCount();
     }
-};
+}
 
-/**
- * Switch between tabs
- */
-window.switchBulkAutoLinkTab = function(tabName) {
+function switchBulkAutoLinkTab(tabName) {
     debugLog('[bulkAutoLink] Switching to tab:', tabName);
     
-    // Update tab buttons
     document.querySelectorAll('.bulk-auto-link-tab').forEach(tab => {
         tab.classList.toggle('active', tab.dataset.tab === tabName);
     });
     
-    // Update lists - show only the selected one using display style
     const confidentList = document.getElementById('bulkAutoLinkConfidentList');
     const uncertainList = document.getElementById('bulkAutoLinkUncertainList');
     const nomatchList = document.getElementById('bulkAutoLinkNoMatchList');
@@ -14709,30 +15203,23 @@ window.switchBulkAutoLinkTab = function(tabName) {
     if (uncertainList) uncertainList.style.display = tabName === 'uncertain' ? 'flex' : 'none';
     if (nomatchList) nomatchList.style.display = tabName === 'nomatch' ? 'flex' : 'none';
     
-    // Show/hide actions bar (only for confident tab)
     const actionsBar = document.getElementById('bulkAutoLinkConfidentActions');
     if (actionsBar) {
         actionsBar.style.display = tabName === 'confident' ? 'flex' : 'none';
     }
-};
+}
 
-/**
- * Select all confident matches
- */
-window.bulkAutoLinkSelectAll = function() {
+function bulkAutoLinkSelectAll() {
     bulkAutoLinkResults.confident.forEach(item => item.selected = true);
     renderBulkAutoLinkConfidentList();
     updateBulkAutoLinkSelectedCount();
-};
+}
 
-/**
- * Deselect all confident matches
- */
-window.bulkAutoLinkDeselectAll = function() {
+function bulkAutoLinkDeselectAll() {
     bulkAutoLinkResults.confident.forEach(item => item.selected = false);
     renderBulkAutoLinkConfidentList();
     updateBulkAutoLinkSelectedCount();
-};
+}
 
 /**
  * Update selected count
@@ -14887,6 +15374,7 @@ async function applyBulkAutoLinks() {
 // Event handlers for Bulk Auto-Link
 window.openBulkAutoLinkModal = openBulkAutoLinkModal;
 document.getElementById('bulkAutoLinkBtn')?.addEventListener('click', openBulkAutoLinkModal);
+document.getElementById('recommenderBtn')?.addEventListener('click', () => window.openRecommender?.());
 document.getElementById('closeBulkAutoLinkModal')?.addEventListener('click', () => {
     // Just set abort flag and close - state is preserved for resuming
     bulkAutoLinkAborted = true;
@@ -14907,6 +15395,55 @@ document.getElementById('bulkAutoLinkCancelBtn')?.addEventListener('click', () =
 });
 document.getElementById('bulkAutoLinkApplyBtn')?.addEventListener('click', applyBulkAutoLinks);
 
+// Delegated handlers for bulk auto-link results
+document.getElementById('bulkAutoLinkResults')?.addEventListener('click', (e) => {
+    const tab = e.target.closest('.bulk-auto-link-tab');
+    if (tab) { switchBulkAutoLinkTab(tab.dataset.tab); return; }
+
+    if (e.target.closest('.bulk-auto-link-select-all')) { bulkAutoLinkSelectAll(); return; }
+    if (e.target.closest('.bulk-auto-link-deselect-all')) { bulkAutoLinkDeselectAll(); return; }
+
+    if (e.target.classList.contains('bulk-auto-link-item-checkbox')) return;
+
+    const option = e.target.closest('.bulk-auto-link-option');
+    if (option) {
+        const itemIdx = parseInt(option.dataset.itemIdx);
+        const optIdx = parseInt(option.dataset.optIdx);
+        const item = option.closest('.bulk-auto-link-item');
+        if (item?.classList.contains('bulk-auto-link-item-confident')) {
+            selectBulkAutoLinkConfidentOption(itemIdx, optIdx);
+        } else if (item?.classList.contains('bulk-auto-link-item-uncertain')) {
+            selectBulkAutoLinkOption(itemIdx, optIdx);
+        }
+        return;
+    }
+
+    if (e.target.closest('.bulk-auto-link-item-confident-header')) {
+        const idx = parseInt(e.target.closest('.bulk-auto-link-item')?.dataset.idx);
+        if (!isNaN(idx)) toggleBulkAutoLinkConfidentExpand(idx);
+        return;
+    }
+
+    if (e.target.closest('.bulk-auto-link-item-uncertain-header')) {
+        const idx = parseInt(e.target.closest('.bulk-auto-link-item')?.dataset.idx);
+        if (!isNaN(idx)) toggleBulkAutoLinkExpand(idx);
+        return;
+    }
+});
+
+document.getElementById('bulkAutoLinkResults')?.addEventListener('change', (e) => {
+    if (!e.target.classList.contains('bulk-auto-link-item-checkbox')) return;
+    const item = e.target.closest('.bulk-auto-link-item');
+    const idx = parseInt(item?.dataset.idx);
+    if (isNaN(idx)) return;
+
+    if (item.classList.contains('bulk-auto-link-item-confident')) {
+        toggleBulkAutoLinkItem('confident', idx);
+    } else if (item.classList.contains('bulk-auto-link-item-uncertain')) {
+        clearBulkAutoLinkSelection(idx, e.target);
+    }
+});
+
 // ==============================================
 // Help & Tips Modal
 // ==============================================
@@ -14923,6 +15460,18 @@ document.getElementById('closeGalleryInfoModalBtn')?.addEventListener('click', (
     document.getElementById('galleryInfoModal').classList.add('hidden');
 });
 
+// Help sidebar navigation
+const helpModal = document.getElementById('galleryInfoModal');
+if (helpModal) {
+    helpModal.querySelectorAll('.help-nav-item').forEach(item => {
+        item.addEventListener('click', () => {
+            const section = item.dataset.section;
+            helpModal.querySelectorAll('.help-nav-item').forEach(n => n.classList.toggle('active', n.dataset.section === section));
+            helpModal.querySelectorAll('.help-panel').forEach(p => p.classList.toggle('active', p.dataset.section === section));
+        });
+    });
+}
+
 // ==============================================
 // Media Localization Feature
 // ==============================================
@@ -14930,15 +15479,33 @@ document.getElementById('closeGalleryInfoModalBtn')?.addEventListener('click', (
 const FAST_SKIP_MIN_SIZE = 1024;
 const FAST_SKIP_MIN_NAME_LENGTH = 4;
 
+// Duplicated in index.js (extractSanitizedUrlNameForChat). keep in sync
+const CDN_VARIANT_NAMES = new Set(['public', 'original', 'raw', 'full', 'thumbnail', 'thumb',
+    'medium', 'small', 'large', 'xl', 'default', 'image', 'photo', 'download', 'view']);
+
 function extractSanitizedUrlName(url) {
     try {
         const urlObj = new URL(url);
-        const pathParts = urlObj.pathname.split('/');
-        const originalFilename = pathParts[pathParts.length - 1] || '';
-        const nameWithoutExt = originalFilename.includes('.')
-            ? originalFilename.substring(0, originalFilename.lastIndexOf('.'))
-            : originalFilename;
-        return nameWithoutExt.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 40);
+        const pathParts = urlObj.pathname.split('/').filter(Boolean);
+        if (pathParts.length === 0) return '';
+
+        const lastPart = pathParts[pathParts.length - 1];
+        const nameWithoutExt = lastPart.includes('.')
+            ? lastPart.substring(0, lastPart.lastIndexOf('.'))
+            : lastPart;
+        const sanitized = nameWithoutExt.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 40);
+
+        // CDN URLs often end with a generic variant name (/public, /original, /thumbnail).
+        // Prepend the parent segment for uniqueness when this happens.
+        if (pathParts.length >= 2 && CDN_VARIANT_NAMES.has(sanitized.toLowerCase())) {
+            const parent = pathParts[pathParts.length - 2]
+                .replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 30);
+            if (parent.length >= 4) {
+                return `${parent}_${sanitized}`.substring(0, 40);
+            }
+        }
+
+        return sanitized;
     } catch {
         return '';
     }
@@ -15721,16 +16288,8 @@ async function saveMediaFromMemory(downloadResult, url, folderName, index) {
             }
         }
         
-        // Extract original filename from URL
-        const urlObj = new URL(url);
-        const pathParts = urlObj.pathname.split('/');
-        const originalFilename = pathParts[pathParts.length - 1] || 'media';
-        const originalNameWithoutExt = originalFilename.includes('.') 
-            ? originalFilename.substring(0, originalFilename.lastIndexOf('.'))
-            : originalFilename;
-        
-        // Sanitize filename
-        const sanitizedName = originalNameWithoutExt.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 50);
+        // Extract sanitized filename from URL (handles CDN variant segments)
+        const sanitizedName = extractSanitizedUrlName(url) || 'media';
         
         // Generate local filename
         const filenameBase = `localized_media_${index}_${sanitizedName}`;
@@ -16130,6 +16689,15 @@ bulkSummaryNextBtn?.addEventListener('click', () => {
     renderBulkSummaryList();
 });
 
+document.getElementById('bulkSummaryList')?.addEventListener('click', (e) => {
+    const link = e.target.closest('.char-name-link');
+    if (link) {
+        e.preventDefault();
+        const avatar = link.dataset.avatar;
+        if (avatar) openCharFromBulkSummary(avatar);
+    }
+});
+
 /**
  * Filter bulk summary results based on current filter and search
  */
@@ -16259,7 +16827,7 @@ function renderBulkSummaryList() {
             return `
             <div class="bulk-summary-item${r.incomplete ? ' incomplete' : ''}">
                 <img src="${getCharacterAvatarUrl(r.avatar)}" alt="" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect fill=%22%23333%22 width=%22100%22 height=%22100%22/><text x=%2250%22 y=%2255%22 text-anchor=%22middle%22 fill=%22%23666%22 font-size=%2240%22>?</text></svg>'">
-                <a class="char-name-link" href="#" onclick="openCharFromBulkSummary('${escapeHtml(r.avatar)}'); return false;" title="Click to view ${escapeHtml(r.name)}">${escapeHtml(r.name)}</a>
+                <a class="char-name-link" href="#" data-avatar="${escapeHtml(r.avatar)}" title="Click to view ${escapeHtml(r.name)}">${escapeHtml(r.name)}</a>
                 <div class="char-stats">
                     ${r.incomplete ? '<span class="incomplete-badge" title="Has errors or was interrupted"><i class="fa-solid fa-exclamation-triangle"></i></span>' : ''}
                     ${!hasAnyMedia 
@@ -16745,11 +17313,9 @@ const mediaLocalizationCache = {};
  * This ensures we can match remote URLs to their saved local files
  */
 function sanitizeMediaFilename(filename) {
-    // Remove extension if present
     const nameWithoutExt = filename.includes('.') 
         ? filename.substring(0, filename.lastIndexOf('.'))
         : filename;
-    // Same sanitization as saveMediaFromMemory
     return nameWithoutExt.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 50);
 }
 
@@ -16762,7 +17328,6 @@ function extractFilenameFromUrl(url) {
         const pathParts = urlObj.pathname.split('/');
         return pathParts[pathParts.length - 1] || '';
     } catch (e) {
-        // Fallback for malformed URLs
         const parts = url.split('/');
         return parts[parts.length - 1]?.split('?')[0] || '';
     }
@@ -16916,8 +17481,16 @@ function lookupLocalizedMedia(urlMap, remoteUrl) {
     // Method 2: Try sanitized name match (for localized_media_* files)
     const sanitizedName = sanitizeMediaFilename(filename);
     localPath = urlMap[`__sanitized__${sanitizedName}`];
-    
-    return localPath || null;
+    if (localPath) return localPath;
+
+    // Method 3: CDN-aware match — files saved with parent+variant naming
+    const cdnAwareName = extractSanitizedUrlName(remoteUrl);
+    if (cdnAwareName && cdnAwareName !== sanitizedName) {
+        localPath = urlMap[`__sanitized__${cdnAwareName}`];
+        if (localPath) return localPath;
+    }
+
+    return null;
 }
 
 /**
@@ -18222,13 +18795,13 @@ function renderCharDupCard(char, type, groupIdx, charIdx = 0, diffs = null) {
             <div class="char-dup-card-meta">
                 <div class="char-dup-card-meta-item ${dateClass}"><i class="fa-solid fa-calendar"></i> ${dateStr}</div>
                 <div class="char-dup-card-meta-item ${tokenClass}"><i class="fa-solid fa-code"></i> ~${tokens} tokens</div>
-                <div class="char-dup-card-meta-item gallery-count-item" id="${galleryCountId}" data-avatar="${escapeHtml(char.avatar)}" onclick="viewDupCharGallery(this)" title="Gallery images"><i class="fa-solid fa-images"></i> <span class="gallery-count-value">...</span></div>
+                <div class="char-dup-card-meta-item gallery-count-item" id="${galleryCountId}" data-avatar="${escapeHtml(char.avatar)}" title="Gallery images"><i class="fa-solid fa-images"></i> <span class="gallery-count-value">...</span></div>
             </div>
             <div class="char-dup-card-actions">
-                <button class="action-btn secondary small" onclick="viewCharFromDuplicates('${escapeHtml(char.avatar)}')">
+                <button class="action-btn secondary small dup-view-btn">
                     <i class="fa-solid fa-eye"></i> View
                 </button>
-                <button class="action-btn danger-hover small" onclick="deleteDuplicateChar('${escapeHtml(char.avatar)}', ${groupIdx})">
+                <button class="action-btn danger-hover small dup-delete-btn" data-group-idx="${groupIdx}">
                     <i class="fa-solid fa-trash"></i> Delete
                 </button>
             </div>
@@ -18272,7 +18845,7 @@ async function renderDuplicateGroups(groups) {
         
         html += `
             <div class="char-dup-group" id="dup-group-${idx}">
-                <div class="char-dup-group-header" onclick="toggleDupGroup(${idx})">
+                <div class="char-dup-group-header">
                     <i class="fa-solid fa-chevron-right char-dup-group-toggle"></i>
                     <img class="char-dup-group-avatar" src="${refAvatar}" alt="${escapeHtml(refName)}" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect fill=%22%23333%22 width=%22100%22 height=%22100%22/><text x=%2250%22 y=%2255%22 text-anchor=%22middle%22 fill=%22%23666%22 font-size=%2240%22>?</text></svg>'">
                     <div class="char-dup-group-info">
@@ -18489,7 +19062,7 @@ async function viewDupCharGallery(el) {
         showToast('Failed to load gallery', 'error');
     }
 }
-window.viewDupCharGallery = viewDupCharGallery;
+
 
 /**
  * Load and display gallery image counts for all characters in duplicate groups
@@ -18987,6 +19560,32 @@ async function openCharDuplicatesModal(useCache = true) {
 // Character Duplicates Modal Event Listeners
 on('checkDuplicatesBtn', 'click', () => openCharDuplicatesModal());
 
+document.getElementById('charDuplicatesResults')?.addEventListener('click', (e) => {
+    const header = e.target.closest('.char-dup-group-header');
+    if (header) {
+        const group = header.closest('.char-dup-group');
+        const idx = parseInt(group?.id?.replace('dup-group-', ''));
+        if (!isNaN(idx)) toggleDupGroup(idx);
+        return;
+    }
+
+    const galleryItem = e.target.closest('.gallery-count-item');
+    if (galleryItem) { viewDupCharGallery(galleryItem); return; }
+
+    const card = e.target.closest('.char-dup-card');
+    if (!card) return;
+    const avatar = card.dataset.avatar;
+    if (!avatar) return;
+
+    if (e.target.closest('.dup-view-btn')) { viewCharFromDuplicates(avatar); return; }
+
+    const deleteBtn = e.target.closest('.dup-delete-btn');
+    if (deleteBtn) {
+        const groupIdx = parseInt(deleteBtn.dataset.groupIdx);
+        if (!isNaN(groupIdx)) deleteDuplicateChar(avatar, groupIdx);
+    }
+});
+
 on('closeCharDuplicatesModal', 'click', () => hideModal('charDuplicatesModal'));
 
 on('closeCharDuplicatesModalBtn', 'click', () => hideModal('charDuplicatesModal'));
@@ -19383,17 +19982,36 @@ function buildCreatorNotesIframeDoc(content) {
     return `<!DOCTYPE html><html><head><meta charset="UTF-8">${csp}${styles}</head><body><div id="content-wrapper">${content}</div></body></html>`;
 }
 
+function estimateCreatorNotesHeight(html) {
+    const imgCount = (html.match(/<img[\s>]/gi) || []).length;
+    const textLength = html.replace(/<[^>]+>/g, '').length;
+    const hasTable = /<table[\s>]/i.test(html);
+
+    let estimate = 0;
+    // ~20px per 80 chars of text (rough line-wrap heuristic at ~400px container width)
+    estimate += Math.ceil(textLength / 80) * 20;
+    // Images: assume ~200px each on average
+    estimate += imgCount * 200;
+    // Tables add some bulk
+    if (hasTable) estimate += 100;
+
+    estimate = Math.max(CreatorNotesConfig.MIN_HEIGHT, Math.min(estimate, CreatorNotesConfig.MAX_HEIGHT));
+    return estimate;
+}
+
 /**
  * Create and configure the sandboxed iframe
  * @param {string} srcdoc - The iframe document content
+ * @param {number} [initialHeight] - Optional initial height in pixels
  * @returns {HTMLIFrameElement} - Configured iframe element
  */
-function createCreatorNotesIframe(srcdoc) {
+function createCreatorNotesIframe(srcdoc, initialHeight) {
     const iframe = document.createElement('iframe');
     iframe.sandbox = 'allow-same-origin allow-popups allow-popups-to-escape-sandbox';
+    const h = initialHeight || CreatorNotesConfig.MIN_HEIGHT;
     iframe.style.cssText = `
         width: 100%;
-        height: ${CreatorNotesConfig.MIN_HEIGHT}px;
+        height: ${h}px;
         min-height: ${CreatorNotesConfig.MIN_HEIGHT}px;
         max-height: none;
         border: none;
@@ -19523,7 +20141,8 @@ function renderCreatorNotesSecure(content, charName, container) {
     
     // Build and insert iframe
     const iframeDoc = buildCreatorNotesIframeDoc(hardened);
-    const iframe = createCreatorNotesIframe(iframeDoc);
+    const initialHeight = estimateCreatorNotesHeight(hardened);
+    const iframe = createCreatorNotesIframe(iframeDoc, initialHeight);
     
     container.appendChild(iframe);
     
@@ -20132,6 +20751,7 @@ window.generateGalleryId = generateGalleryId;
 
 // UI / Modals
 window.openModal = openModal;
+window.openCharModalElevated = openCharModalElevated;
 window.closeModal = closeModal;
 window.openProviderLinkModal = openProviderLinkModal;
 window.hideModal = hideModal;
@@ -20465,7 +21085,8 @@ window.applyCardFieldUpdates = async function(avatar, fieldUpdates) {
         const updatedData = { ...existingData };
         
         for (const [field, value] of Object.entries(fieldUpdates)) {
-            setNestedValue(updatedData, field, value);
+            const mapped = field.startsWith('depth_prompt.') ? 'extensions.' + field : field;
+            setNestedValue(updatedData, mapped, value);
         }
         
         updatedData.extensions = { ...existingExtensions, ...(updatedData.extensions || {}) };

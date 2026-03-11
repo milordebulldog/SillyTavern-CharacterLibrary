@@ -228,12 +228,25 @@ export class ProviderBase {
     async fetchLorebook(linkInfo) { return null; }
 
     /**
-     * Fetch live stats for the link modal (downloads, favorites, tokens).
+     * Fetch live stats for the link modal.
      * Only providers with public stats APIs need to override this.
      * @param {ProviderLinkInfo} linkInfo
-     * @returns {Promise<{downloads: number, favorites: number, tokens: number}|null>}
+     * @returns {Promise<{stat1: number|null, stat2: number|null, stat3: number|null}|null>}
      */
     async fetchLinkStats(linkInfo) { return null; }
+
+    /**
+     * Define the label and icon for each link stat slot.
+     * Override to customize stat display in the link modal.
+     * @returns {{stat1: {icon: string, label: string}, stat2: {icon: string, label: string}, stat3: {icon: string, label: string}}}
+     */
+    get linkStatFields() {
+        return {
+            stat1: { icon: 'fa-solid fa-download', label: 'Downloads' },
+            stat2: { icon: 'fa-solid fa-heart', label: 'Favorites' },
+            stat3: { icon: 'fa-solid fa-coins', label: 'Tokens' },
+        };
+    }
 
     /**
      * Return a provider-specific cached data node from the last fetchLinkStats()

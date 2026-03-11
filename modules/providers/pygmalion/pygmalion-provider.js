@@ -137,6 +137,14 @@ class PygmalionProvider extends ProviderBase {
     get iconUrl() { return `${PYGMALION_SITE_BASE}/icons/favicon-32x32.png`; }
     get browseView() { return pygmalionBrowseView; }
 
+    get linkStatFields() {
+        return {
+            stat1: { icon: 'fa-solid fa-download', label: 'Downloads' },
+            stat2: { icon: 'fa-solid fa-star', label: 'Stars' },
+            stat3: { icon: 'fa-solid fa-coins', label: 'Tokens' },
+        };
+    }
+
     // ── Lifecycle ───────────────────────────────────────────
 
     async init(coreAPI) {
@@ -153,7 +161,7 @@ class PygmalionProvider extends ProviderBase {
     renderModals() { return pygmalionBrowseView.renderModals(); }
 
     async activate(container, options = {}) {
-        pygmalionBrowseView.activate(container, options);
+        await pygmalionBrowseView.activate(container, options);
     }
 
     deactivate() {
@@ -208,9 +216,9 @@ class PygmalionProvider extends ProviderBase {
 
             this._cachedLinkData = char;
             return {
-                downloads: char.downloads || 0,
-                favorites: char.stars || 0,
-                tokens: char.personalityTokenCount || 0
+                stat1: char.downloads || 0,
+                stat2: char.stars || 0,
+                stat3: char.personalityTokenCount || 0
             };
         } catch (e) {
             api?.debugLog?.('[PygmalionProvider] fetchLinkStats:', e.message);

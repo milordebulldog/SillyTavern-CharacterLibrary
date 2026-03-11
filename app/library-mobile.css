@@ -638,11 +638,14 @@
     }
     .tab-pane.slide-from-right { animation: tab-slide-from-right 0.2s ease-out; }
     .tab-pane.slide-from-left  { animation: tab-slide-from-left  0.2s ease-out; }
+
     .meta-info {
         font-size: 0.8rem;
         padding: 10px 12px;
         margin-bottom: 14px;
     }
+    .provider-link-text .provider-link-name { display: none; }
+    .provider-link-icon { display: inline !important; margin-right: 2px; }
     .description-box, .first-mes-box { margin-bottom: 16px; }
     .description-box h3, .first-mes-box h3,
     h3 { font-size: 0.9rem; margin-bottom: 8px; padding-bottom: 6px; }
@@ -1069,6 +1072,8 @@
     .browse-alt-greeting-index { font-size: 0.7rem; padding: 2px 6px; }
     .browse-alt-greeting-preview { font-size: 0.78rem; }
     .browse-alt-greeting-body { font-size: 0.85rem; }
+    .browse-gallery-grid { grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 6px; }
+    .browse-gallery-thumb:hover { opacity: 1; }
 
     /* Card updates modal (mobile) */
     .card-update-modal .cl-modal-content {
@@ -2351,6 +2356,46 @@
     .gallery-info-modal-content .confirm-modal-footer {
         flex-shrink: 0;
     }
+    .help-layout {
+        flex-direction: column !important;
+        height: 100% !important;
+    }
+    .help-sidebar {
+        width: 100% !important;
+        min-width: unset !important;
+        border-right: none !important;
+        border-bottom: 1px solid var(--glass-border) !important;
+        padding: 0 !important;
+        flex-shrink: 0;
+    }
+    .help-nav {
+        display: flex !important;
+        flex-direction: row !important;
+        overflow-x: auto !important;
+        padding: 6px !important;
+        gap: 4px !important;
+        -webkit-overflow-scrolling: touch;
+    }
+    .help-nav-item {
+        white-space: nowrap;
+        flex-shrink: 0;
+        padding: 8px 12px !important;
+        border-radius: 6px !important;
+        border-left: none !important;
+        min-height: 36px;
+        font-size: 0.8rem !important;
+        touch-action: manipulation;
+    }
+    .help-nav-item.active {
+        background: rgba(74, 158, 255, 0.15) !important;
+        border-left-color: transparent !important;
+    }
+    .help-content {
+        padding: 14px;
+        flex: 1;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+    }
     .info-section {
         margin-bottom: 16px;
         padding-bottom: 14px;
@@ -2600,6 +2645,51 @@
     .settings-group-title { font-size: 0.85rem; }
     .settings-row { font-size: 0.85rem; }
 
+    /* --- Provider Order & Defaults --- */
+    .provider-order-item {
+        flex-wrap: wrap;
+        padding: 10px 12px;
+        gap: 8px;
+        min-height: 44px;
+        touch-action: manipulation;
+    }
+    .provider-order-item:hover {
+        background: rgba(255, 255, 255, 0.03);
+    }
+    .provider-order-item .drag-handle {
+        opacity: 0.5;
+        font-size: 0.9rem;
+        padding: 6px;
+    }
+    .provider-order-item .provider-order-name {
+        font-size: 0.85rem;
+        flex: 1 1 0;
+        min-width: 0;
+    }
+    .provider-order-item .provider-order-defaults {
+        width: 100%;
+        margin-left: 0;
+        padding-left: 30px;
+        gap: 6px;
+        flex-wrap: nowrap;
+    }
+    .provider-order-item .provider-order-defaults select {
+        font-size: 16px !important;
+        padding: 4px 6px;
+        min-height: 32px;
+        max-width: none;
+        flex: 1 1 0;
+        min-width: 0;
+        border-radius: 6px;
+    }
+    .provider-order-defaults-label {
+        display: none;
+    }
+    .provider-order-badge {
+        font-size: 0.6rem;
+        padding: 2px 5px;
+    }
+
     /* ---------------------------------------------------
        GALLERY GRID  (characters view)
        --------------------------------------------------- */
@@ -2616,7 +2706,7 @@
     }
     .character-grid {
         grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-        gap: 20px; /* MUST match GRID_GAP=20 in library.js virtual scroll */
+        gap: 20px;
         padding-bottom: 20px;
     }
     .char-card {
@@ -2913,7 +3003,8 @@
         gap: 2px;
     }
     .filter-area.online-filters .chub-view-btn,
-    .filter-area.online-filters .pyg-view-btn {
+    .filter-area.online-filters .pyg-view-btn,
+    .filter-area.online-filters .wyvern-view-btn {
         font-size: 0.72rem;
         padding: 4px 7px;
     }
@@ -3047,6 +3138,395 @@
     /* ChubAI character detail modal */
     .browse-char-body { padding: 12px; }
     .browse-char-description { font-size: 0.85rem; line-height: 1.6; }
+
+    /* --- Card Recommender --- */
+
+    .recommender-modal-content {
+        width: 100% !important;
+        max-width: 100% !important;
+        height: 100% !important;
+        max-height: 100% !important;
+        border-radius: 0 !important;
+        display: flex !important;
+        flex-direction: column !important;
+        overflow: hidden;
+        box-shadow: none !important;
+    }
+
+    .recommender-header {
+        padding: 10px 14px;
+        flex-shrink: 0;
+    }
+
+    .recommender-header-title {
+        font-size: 0.85rem;
+    }
+
+    .recommender-body {
+        flex: 1 1 0% !important;
+        min-height: 0 !important;
+        overflow-y: auto !important;
+        overflow-x: hidden;
+        -webkit-overflow-scrolling: touch;
+        padding: 12px 14px max(16px, env(safe-area-inset-bottom));
+        overscroll-behavior: contain;
+        justify-content: flex-start;
+    }
+
+    /* --- Input area --- */
+
+    .recommender-input-area {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+        margin-bottom: 10px;
+    }
+
+    .recommender-prompt {
+        font-size: 16px;
+        min-height: 80px;
+        padding: 12px 14px;
+        border-radius: 10px;
+    }
+
+    .recommender-submit-btn {
+        width: 100%;
+        height: 44px;
+        min-width: unset;
+        min-height: 44px;
+        border-radius: 10px;
+        flex-shrink: 0;
+        touch-action: manipulation;
+        gap: 8px;
+        font-size: 0.82rem;
+        font-weight: 600;
+    }
+
+    .recommender-submit-label {
+        display: inline;
+    }
+
+    .recommender-close-btn {
+        min-width: 44px;
+        min-height: 44px;
+        touch-action: manipulation;
+    }
+
+    /* --- Toolbar --- */
+
+    .recommender-toolbar {
+        margin-bottom: 10px;
+        gap: 6px;
+        overflow: hidden;
+    }
+
+    .recommender-profile-area {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+    }
+
+    .recommender-profile-area .custom-select-container {
+        max-width: 140px;
+        flex-shrink: 1;
+        min-width: 0;
+    }
+
+    .recommender-profile-area .custom-select-trigger {
+        max-width: 140px;
+    }
+
+    .recommender-profile-area .trigger-text {
+        max-width: 100px;
+    }
+
+    .recommender-profile-status {
+        min-width: 0;
+        overflow: hidden;
+    }
+
+    .recommender-connection-text {
+        font-size: 0.65rem;
+    }
+
+    .recommender-toolbar-btn {
+        min-width: 44px;
+        min-height: 44px;
+        flex-shrink: 0;
+        touch-action: manipulation;
+    }
+
+    /* --- Settings panel --- */
+
+    .recommender-settings-panel {
+        overflow: visible !important;
+        max-height: none !important;
+        border-radius: 10px;
+        margin-bottom: 10px;
+    }
+
+    .recommender-settings-inner {
+        padding: 12px;
+        gap: 14px;
+    }
+
+    .recommender-setting-section {
+        gap: 10px;
+    }
+
+    .recommender-setting-section-title {
+        font-size: 0.65rem;
+    }
+
+    /* --- Filter rows --- */
+
+    .recommender-filter-row {
+        gap: 8px;
+    }
+
+    .recommender-filter-label {
+        font-size: 0.76rem;
+    }
+
+    .recommender-tristate {
+        flex-shrink: 0;
+    }
+
+    .recommender-tristate-btn {
+        min-height: 38px;
+        padding: 6px 12px;
+        font-size: 0.72rem;
+        touch-action: manipulation;
+    }
+
+    .recommender-date-range {
+        gap: 6px;
+    }
+
+    .recommender-date-range input[type="date"] {
+        flex: 1;
+        min-width: 0;
+    }
+
+    /* --- LLM Context chips --- */
+
+    .recommender-toggles-row {
+        gap: 5px;
+    }
+
+    .recommender-toggle-chip span {
+        min-height: 38px;
+        padding: 6px 10px;
+        font-size: 0.72rem;
+        touch-action: manipulation;
+    }
+
+    /* --- Generation sliders --- */
+
+    .recommender-slider-row {
+        grid-template-columns: 48px 1fr 36px;
+        gap: 8px;
+        min-height: 36px;
+    }
+
+    .recommender-slider-row label {
+        font-size: 0.76rem;
+    }
+
+    .recommender-slider-row input[type="range"] {
+        height: 6px;
+    }
+
+    /* --- Batch mode toggle --- */
+
+    .recommender-batch-toggle {
+        margin-top: 6px;
+    }
+
+    .recommender-batch-toggle span {
+        min-height: 38px;
+        touch-action: manipulation;
+    }
+
+    .recommender-batch-slider-row {
+        grid-template-columns: 52px 1fr 28px;
+        gap: 8px;
+        min-height: 36px;
+        padding-left: 10px;
+    }
+
+    .recommender-batch-slider-row label {
+        font-size: 0.72rem;
+    }
+
+    .recommender-batch-slider-row input[type="range"] {
+        height: 6px;
+    }
+
+    /* --- API toggle (in toolbar) --- */
+
+    .recommender-api-toggle {
+        flex-shrink: 0;
+    }
+
+    .recommender-api-mode-btn {
+        min-height: 32px;
+        padding: 4px 8px;
+        font-size: 0.65rem;
+        touch-action: manipulation;
+    }
+
+    .recommender-custom-api {
+        margin-bottom: 10px;
+    }
+
+    /* --- All inputs 16px to prevent iOS zoom --- */
+
+    .recommender-field {
+        font-size: 16px;
+        padding: 10px 12px;
+    }
+
+    .recommender-field-sm {
+        font-size: 16px;
+        padding: 8px 10px;
+    }
+
+    /* --- Tag pills & autocomplete --- */
+
+    .recommender-pill {
+        min-height: 32px;
+        padding: 4px 10px;
+        font-size: 0.72rem;
+        touch-action: manipulation;
+    }
+
+    .recommender-tag-autocomplete {
+        max-height: 200px;
+    }
+
+    .recommender-tag-ac-item {
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        padding: 10px 14px;
+        font-size: 0.85rem;
+        touch-action: manipulation;
+    }
+
+    /* --- Result cards --- */
+
+    .recommender-results-grid {
+        gap: 6px;
+    }
+
+    .recommender-result-card {
+        gap: 10px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        transform: none !important;
+        box-shadow: none !important;
+    }
+
+    .recommender-result-card:hover {
+        transform: none !important;
+        box-shadow: none !important;
+    }
+
+    .recommender-result-rank {
+        width: 14px;
+        height: 14px;
+        font-size: 0.5rem;
+        top: 5px;
+        left: 5px;
+    }
+
+    .recommender-result-avatar {
+        width: 44px;
+        height: 44px;
+        border-radius: 8px;
+        flex-shrink: 0;
+    }
+
+    .recommender-result-card:hover .recommender-result-avatar {
+        border-color: rgba(255, 255, 255, 0.06) !important;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+    }
+
+    .recommender-result-info {
+        min-width: 0;
+    }
+
+    .recommender-result-header {
+        flex-direction: column;
+        gap: 1px;
+    }
+
+    .recommender-result-name-link {
+        font-size: 0.82rem;
+        white-space: normal;
+        overflow: visible;
+        text-overflow: unset;
+        touch-action: manipulation;
+    }
+
+    .recommender-result-creator {
+        font-size: 0.6rem;
+    }
+
+    .recommender-result-reason {
+        font-size: 0.72rem;
+        -webkit-line-clamp: unset;
+        -webkit-box-orient: unset;
+        display: block;
+        overflow: visible;
+        line-height: 1.5;
+    }
+
+    .recommender-result-tags {
+        gap: 3px;
+        margin-top: 4px;
+    }
+
+    .recommender-tag {
+        font-size: 0.56rem;
+        padding: 1px 5px;
+    }
+
+    /* --- Status & raw response --- */
+
+    .recommender-status {
+        font-size: 0.76rem;
+        padding: 10px 12px;
+        border-radius: 8px;
+    }
+
+    .recommender-status-row {
+        gap: 8px;
+    }
+
+    .recommender-status-message {
+        min-width: 0;
+    }
+
+    .recommender-error-detail {
+        font-size: 0.68rem;
+    }
+
+    .recommender-copy-debug {
+        width: 36px;
+        height: 36px;
+        min-width: 36px;
+        min-height: 36px;
+        touch-action: manipulation;
+    }
+
+    .recommender-raw-response {
+        font-size: 0.74rem;
+        padding: 12px;
+        max-height: none;
+        border-radius: 8px;
+    }
 }
 
 
@@ -3090,7 +3570,7 @@
     /* Grid – smaller cards */
     .character-grid {
         grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
-        gap: 20px; /* MUST match GRID_GAP=20 in library.js virtual scroll */
+        gap: 20px;
     }
 
     /* Chub grid tighter */
@@ -3108,6 +3588,24 @@
     }
     .provider-tab-btn i {
         font-size: 0.8rem;
+    }
+
+    /* Provider order — compact for phones */
+    .provider-order-item {
+        padding: 8px 10px;
+        gap: 6px;
+    }
+    .provider-order-item .provider-order-icon {
+        display: none;
+    }
+    .provider-order-item .provider-order-defaults {
+        padding-left: 26px;
+        gap: 5px;
+    }
+    .provider-order-item .provider-order-defaults select {
+        font-size: 16px !important;
+        padding: 3px 4px;
+        min-height: 28px;
     }
 
     /* ---- Inline Tags Row in Edit tab ---- */
@@ -3329,6 +3827,70 @@
         overflow-y: auto;
     }
 
+    /* --- AI Recommender (phone) --- */
+
+    .recommender-body {
+        padding: 10px 10px max(14px, env(safe-area-inset-bottom));
+    }
+
+    .recommender-input-area {
+        gap: 6px;
+    }
+
+    .recommender-prompt {
+        font-size: 16px;
+        padding: 8px 10px;
+    }
+
+    .recommender-settings-inner {
+        padding: 10px;
+    }
+
+    .recommender-filter-row {
+        gap: 6px;
+    }
+
+    .recommender-tristate-btn {
+        padding: 6px 10px;
+        font-size: 0.72rem;
+    }
+
+    .recommender-date-range {
+        flex-wrap: wrap;
+    }
+
+    .recommender-toggle-chip span {
+        font-size: 0.72rem;
+        padding: 5px 8px;
+    }
+
+    .recommender-result-card {
+        padding: 8px 10px;
+        gap: 8px;
+    }
+
+    .recommender-result-avatar {
+        width: 38px;
+        height: 38px;
+        border-radius: 7px;
+    }
+
+    .recommender-result-name-link {
+        font-size: 0.84rem;
+    }
+
+    .recommender-result-reason {
+        font-size: 0.76rem;
+    }
+
+    .recommender-slider-row {
+        grid-template-columns: 48px 1fr 36px;
+    }
+
+    /* Help nav — icon-only on phones */
+    .help-nav-item span { display: none !important; }
+    .help-nav-item i { font-size: 1rem !important; margin: 0 !important; }
+
 }
 
 
@@ -3358,7 +3920,7 @@
     /* Tablet gets slightly larger cards */
     .character-grid {
         grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-        gap: 20px; /* MUST match GRID_GAP=20 in library.js virtual scroll */
+        gap: 20px;
     }
 }
 

@@ -260,6 +260,36 @@ class ChubBrowseView extends BrowseView {
 
     get hasModeToggle() { return true; }
 
+    getSettingsConfig() {
+        return {
+            browseSortOptions: [
+                { value: 'popular_week', label: 'Hot This Week' },
+                { value: 'popular_month', label: 'Hot This Month' },
+                { value: 'popular_all', label: 'Most Downloaded' },
+                { value: 'rated_week', label: 'Top Rated (Week)' },
+                { value: 'rated_all', label: 'Top Rated (All Time)' },
+                { value: 'newest', label: 'Newest' },
+                { value: 'updated', label: 'Recently Updated' },
+                { value: 'recent_hits', label: 'Recent Hits' },
+                { value: 'random', label: 'Random' },
+            ],
+            followingSortOptions: [
+                { value: 'newest', label: 'Newest Created' },
+                { value: 'updated', label: 'Recently Updated' },
+                { value: 'oldest', label: 'Oldest First' },
+                { value: 'name_asc', label: 'Name A-Z' },
+                { value: 'name_desc', label: 'Name Z-A' },
+                { value: 'downloads', label: 'Most Downloads' },
+                { value: 'favorites', label: 'Most Favorites' },
+                { value: 'rating', label: 'Top Rated' },
+            ],
+            viewModes: [
+                { value: 'browse', label: 'Browse' },
+                { value: 'timeline', label: 'Following' },
+            ],
+        };
+    }
+
     // ── Filter Bar ──────────────────────────────────────────
 
     renderFilterBar() {
@@ -486,7 +516,7 @@ class ChubBrowseView extends BrowseView {
                         <input type="password" id="chubApiKeyInput" class="glass-input" placeholder="Paste your URQL_TOKEN here..." autocomplete="off">
                     </div>
                     <label class="checkbox-label" style="margin-top: 10px;">
-                        <input type="checkbox" id="chubRememberKey"> Remember token
+                        <input type="checkbox" id="chubRememberKey" checked> Remember token
                     </label>
                     <div class="chub-login-status" style="display:none;"></div>
                 </div>
@@ -592,6 +622,11 @@ class ChubBrowseView extends BrowseView {
                     </div>
                 </div>
 
+                <!-- Definition loading indicator -->
+                <div id="chubCharDefinitionLoading" class="browse-char-section" style="display: none;">
+                    <div style="color: var(--text-secondary, #888); padding: 8px 0;"><i class="fa-solid fa-spinner fa-spin"></i> Loading character definition...</div>
+                </div>
+
                 <!-- Description -->
                 <div class="browse-char-section" id="chubCharDescriptionSection" style="display: none;">
                     <h3 class="browse-section-title" data-section="chubCharDescription" data-label="Description" data-icon="fa-solid fa-scroll" title="Click to expand">
@@ -616,6 +651,15 @@ class ChubBrowseView extends BrowseView {
                     <div id="chubCharScenario" class="scrolling-text"></div>
                 </div>
 
+                <!-- Example Dialogs -->
+                <div class="browse-char-section browse-section-collapsed" id="chubCharExamplesSection" style="display: none;">
+                    <h3 class="browse-section-title" data-section="chubCharExamples" data-label="Example Dialogs" data-icon="fa-solid fa-comments" title="Click to expand">
+                        <i class="fa-solid fa-comments"></i> Example Dialogs
+                        <span class="browse-section-inline-toggle" title="Toggle inline"><i class="fa-solid fa-chevron-down"></i></span>
+                    </h3>
+                    <div id="chubCharExamples" class="scrolling-text"></div>
+                </div>
+
                 <!-- First Message -->
                 <div class="browse-char-section" id="chubCharFirstMsgSection" style="display: none;">
                     <h3 class="browse-section-title" data-section="chubCharFirstMsg" data-label="First Message" data-icon="fa-solid fa-message" title="Click to expand">
@@ -626,7 +670,7 @@ class ChubBrowseView extends BrowseView {
 
                 <!-- Alternate Greetings -->
                 <div class="browse-char-section" id="chubCharAltGreetingsSection" style="display: none;">
-                    <h3 class="browse-section-title" data-section="chubCharAltGreetings" data-label="Alternate Greetings" data-icon="fa-solid fa-comments" title="Click to expand">
+                    <h3 class="browse-section-title" data-section="browseAltGreetings" data-label="Alternate Greetings" data-icon="fa-solid fa-comments" title="Click to expand">
                         <i class="fa-solid fa-comments"></i> Alternate Greetings <span class="browse-section-count" id="chubCharAltGreetingsCount"></span>
                     </h3>
                     <div id="chubCharAltGreetings" class="browse-alt-greetings-list"></div>
@@ -641,6 +685,38 @@ class ChubBrowseView extends BrowseView {
     init() {
         super.init();
         initChubView();
+    }
+
+    applyDefaults(defaults) {
+        if (defaults.view === 'timeline') {
+            chubViewMode = 'timeline';
+            document.querySelectorAll('.chub-view-btn').forEach(btn =>
+                btn.classList.toggle('active', btn.dataset.chubView === 'timeline')
+            );
+            const browseSection = document.getElementById('chubBrowseSection');
+            const timelineSection = document.getElementById('chubTimelineSection');
+            browseSection?.classList.add('hidden');
+            timelineSection?.classList.remove('hidden');
+            const dp = document.getElementById('chubDiscoveryPreset');
+            const ts = document.getElementById('chubTimelineSortHeader');
+            const dpTarget = dp?._customSelect?.container || dp;
+            const tsTarget = ts?._customSelect?.container || ts;
+            if (dpTarget) dpTarget.classList.add('browse-filter-hidden');
+            if (tsTarget) tsTarget.classList.remove('browse-filter-hidden');
+            const tagsContainer = document.querySelector('.browse-tags-dropdown-container');
+            if (tagsContainer) tagsContainer.classList.add('browse-filter-hidden');
+        }
+        if (defaults.sort) {
+            if (chubViewMode === 'browse') {
+                chubDiscoveryPreset = defaults.sort;
+                const el = document.getElementById('chubDiscoveryPreset');
+                if (el) el.value = defaults.sort;
+            } else {
+                chubTimelineSort = defaults.sort;
+                const el = document.getElementById('chubTimelineSortHeader');
+                if (el) el.value = defaults.sort;
+            }
+        }
     }
 
     activate(container, options = {}) {
@@ -1197,6 +1273,10 @@ export function openChubTokenModal() {
     if (clearBtn) {
         clearBtn.style.display = chubToken ? '' : 'none';
     }
+    
+    // Sync remember checkbox from saved setting
+    const rememberCheckbox = document.getElementById('chubRememberKey');
+    if (rememberCheckbox) rememberCheckbox.checked = getSetting('chubRememberToken') ?? true;
     
     // Use classList.remove('hidden') to match how the modal is closed
     modal.classList.remove('hidden');
@@ -1938,7 +2018,7 @@ async function loadChubTimeline(forceRefresh = false, _isAutoPage = false) {
                 <i class="fa-solid fa-exclamation-triangle"></i>
                 <h3>Failed to Load Timeline</h3>
                 <p>${escapeHtml(e.message)}</p>
-                <button class="action-btn primary" onclick="loadChubTimeline(true)">
+                <button class="action-btn primary browse-retry-btn">
                     <i class="fa-solid fa-refresh"></i> Retry
                 </button>
             </div>
@@ -2037,7 +2117,7 @@ function renderTimelineEmpty(reason) {
                 <i class="fa-solid fa-key"></i>
                 <h3>Token Required</h3>
                 <p>Add your ChubAI URQL token to see new characters from authors you follow.</p>
-                <button class="action-btn primary" onclick="openChubTokenModal()">
+                <button class="action-btn primary browse-add-token-btn">
                     <i class="fa-solid fa-key"></i> Add Token
                 </button>
             </div>
@@ -2241,6 +2321,7 @@ function initChubImageObserver() {
             const realSrc = img.dataset.src;
             if (realSrc && !img.dataset.failed && img.src !== realSrc) {
                 img.src = realSrc;
+                BrowseView.adjustPortraitPosition(img);
             }
         }
     }, {
@@ -2295,6 +2376,7 @@ function eagerLoadVisibleChubImages(container) {
             const realSrc = img.dataset.src;
             if (realSrc && img.src !== realSrc) {
                 img.src = realSrc;
+                BrowseView.adjustPortraitPosition(img);
             }
         }
     }
@@ -2311,6 +2393,7 @@ function eagerPreloadChubImages(container) {
         const realSrc = img.dataset.src;
         if (realSrc && img.src !== realSrc) {
             img.src = realSrc;
+            BrowseView.adjustPortraitPosition(img);
             loaded++;
         }
     }
@@ -2631,11 +2714,18 @@ async function loadChubCharacters(forceRefresh = false) {
         return;
     }
     
+    const loadMoreBtn = document.getElementById('chubLoadMoreBtn');
+
     if (chubCurrentPage === 1) {
         renderLoadingState(grid, 'Loading ChubAI characters...', 'browse-loading');
     }
     
     chubIsLoading = true;
+
+    if (loadMoreBtn) {
+        loadMoreBtn.disabled = true;
+        loadMoreBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Loading...';
+    }
     
     try {
         // Build query parameters - ChubAI uses query params even with POST
@@ -2766,9 +2856,14 @@ async function loadChubCharacters(forceRefresh = false) {
             // Extract popular tags from search results on first page
             extractChubTagsFromResults(nodes);
         } else {
-            // Push new items instead of spread-copying the entire array
-            // (spread creates a full copy of all existing items on every "load more")
-            for (const node of nodes) chubCharacters.push(node);
+            const existingPaths = new Set(chubCharacters.map(c => getChubFullPath(c)).filter(Boolean));
+            for (const node of nodes) {
+                const fp = getChubFullPath(node);
+                if (!fp || !existingPaths.has(fp)) {
+                    chubCharacters.push(node);
+                    if (fp) existingPaths.add(fp);
+                }
+            }
         }
         
         chubHasMore = nodes.length >= 24;
@@ -2784,6 +2879,7 @@ async function loadChubCharacters(forceRefresh = false) {
         if (chubFilterHideOwned && chubHasMore) {
             let visibleNew = nodes.filter(c => !isCharInLocalLibrary(c)).length;
             let autoFetches = 0;
+            const existingPaths = new Set(chubCharacters.map(c => getChubFullPath(c)).filter(Boolean));
             
             while (visibleNew < 24 && chubHasMore && autoFetches < 3 && chubDelegatesInitialized) {
                 autoFetches++;
@@ -2803,7 +2899,13 @@ async function loadChubCharacters(forceRefresh = false) {
                 else if (Array.isArray(moreData.data)) moreNodes = moreData.data;
                 else if (Array.isArray(moreData)) moreNodes = moreData;
                 
-                for (const node of moreNodes) chubCharacters.push(node);
+                for (const node of moreNodes) {
+                    const fp = getChubFullPath(node);
+                    if (!fp || !existingPaths.has(fp)) {
+                        chubCharacters.push(node);
+                        if (fp) existingPaths.add(fp);
+                    }
+                }
                 chubHasMore = moreNodes.length >= 24;
                 visibleNew += moreNodes.filter(c => !isCharInLocalLibrary(c)).length;
             }
@@ -2828,7 +2930,7 @@ async function loadChubCharacters(forceRefresh = false) {
                     <i class="fa-solid fa-exclamation-triangle"></i>
                     <h3>Failed to load ChubAI</h3>
                     <p>${escapeHtml(e.message)}</p>
-                    <button class="action-btn primary" onclick="loadChubCharacters(true)">
+                    <button class="action-btn primary browse-retry-btn">
                         <i class="fa-solid fa-refresh"></i> Retry
                     </button>
                 </div>
@@ -2838,6 +2940,10 @@ async function loadChubCharacters(forceRefresh = false) {
         }
     } finally {
         chubIsLoading = false;
+        if (loadMoreBtn) {
+            loadMoreBtn.disabled = false;
+            loadMoreBtn.innerHTML = '<i class="fa-solid fa-plus"></i> Load More';
+        }
     }
 }
 
@@ -2940,6 +3046,24 @@ async function loadChubFavorites(forceRefresh = false) {
             nodes = nodes.filter(c => !c.nsfw);
         }
         
+        // Apply tag filters client-side (favorites API doesn't support topics param)
+        if (chubTagFilters.size > 0) {
+            const includeTags = [];
+            const excludeTags = [];
+            for (const [tag, state] of chubTagFilters) {
+                if (state === 'include') includeTags.push(tag.toLowerCase());
+                else if (state === 'exclude') excludeTags.push(tag.toLowerCase());
+            }
+            if (includeTags.length > 0 || excludeTags.length > 0) {
+                nodes = nodes.filter(c => {
+                    const charTopics = (c.topics || []).map(t => t.toLowerCase());
+                    if (includeTags.length > 0 && !includeTags.every(t => charTopics.includes(t))) return false;
+                    if (excludeTags.length > 0 && excludeTags.some(t => charTopics.includes(t))) return false;
+                    return true;
+                });
+            }
+        }
+        
         // Apply search filter if any
         if (chubCurrentSearch) {
             const search = chubCurrentSearch.toLowerCase();
@@ -2976,7 +3100,7 @@ async function loadChubFavorites(forceRefresh = false) {
                     <i class="fa-solid fa-exclamation-triangle"></i>
                     <h3>Failed to load favorites</h3>
                     <p>${escapeHtml(e.message)}</p>
-                    <button class="action-btn primary" onclick="loadChubCharacters(true)">
+                    <button class="action-btn primary browse-retry-btn">
                         <i class="fa-solid fa-refresh"></i> Retry
                     </button>
                 </div>
@@ -3040,6 +3164,8 @@ function setupChubGridDelegates() {
     const grid = document.getElementById('chubGrid');
     if (grid) {
         grid.addEventListener('click', (e) => {
+            if (e.target.closest('.browse-retry-btn')) { loadChubCharacters(true); return; }
+
             const authorLink = e.target.closest('.browse-card-creator-link');
             if (authorLink) {
                 e.stopPropagation();
@@ -3059,6 +3185,9 @@ function setupChubGridDelegates() {
     const timelineGrid = document.getElementById('chubTimelineGrid');
     if (timelineGrid) {
         timelineGrid.addEventListener('click', (e) => {
+            if (e.target.closest('.browse-retry-btn')) { loadChubTimeline(true); return; }
+            if (e.target.closest('.browse-add-token-btn')) { openChubTokenModal(); return; }
+
             const authorLink = e.target.closest('.browse-card-creator-link');
             if (authorLink) {
                 e.stopPropagation();
@@ -3251,6 +3380,8 @@ async function openChubCharPreview(char) {
     const scenarioEl = document.getElementById('chubCharScenario');
     const firstMsgSection = document.getElementById('chubCharFirstMsgSection');
     const firstMsgEl = document.getElementById('chubCharFirstMsg');
+    const examplesSection = document.getElementById('chubCharExamplesSection');
+    const examplesEl = document.getElementById('chubCharExamples');
     const altGreetingsSection = document.getElementById('chubCharAltGreetingsSection');
     const altGreetingsEl = document.getElementById('chubCharAltGreetings');
     const altGreetingsCountEl = document.getElementById('chubCharAltGreetingsCount');
@@ -3261,6 +3392,7 @@ async function openChubCharPreview(char) {
     
     avatarImg.src = avatarUrl;
     avatarImg.onerror = () => { avatarImg.src = '/img/ai4.png'; };
+    BrowseView.adjustPortraitPosition(avatarImg);
     nameEl.textContent = char.name || 'Unknown';
     creatorLink.textContent = creatorName;
     creatorLink.href = '#'; // In-app filter action
@@ -3329,13 +3461,16 @@ async function openChubCharPreview(char) {
         lorebookStat.style.display = 'none';
     }
     
-    // Reset definition sections (will be filled from detailed fetch)
+    // Reset definition sections — show loading indicator until detail fetch completes
+    const defLoading = document.getElementById('chubCharDefinitionLoading');
     descSection.style.display = 'none';
     personalitySection.style.display = 'none';
     scenarioSection.style.display = 'none';
+    examplesSection.style.display = 'none';
     firstMsgSection.style.display = 'none';
     if (altGreetingsSection) altGreetingsSection.style.display = 'none';
     if (altGreetingsEl) altGreetingsEl.innerHTML = '';
+    if (defLoading) defLoading.style.display = 'block';
     
     // Import button state — show "In Library" if already imported
     const downloadBtn = document.getElementById('chubDownloadBtn');
@@ -3353,6 +3488,8 @@ async function openChubCharPreview(char) {
     }
     
     modal.classList.remove('hidden');
+    const charBody = modal.querySelector('.browse-char-body');
+    if (charBody) charBody.scrollTop = 0;
     
     const renderAltGreetings = (greetings) => {
         if (!altGreetingsSection || !altGreetingsEl) return;
@@ -3360,7 +3497,7 @@ async function openChubCharPreview(char) {
             altGreetingsSection.style.display = 'none';
             altGreetingsEl.innerHTML = '';
             if (altGreetingsCountEl) altGreetingsCountEl.textContent = '';
-            window.currentChubAltGreetings = [];
+            window.currentBrowseAltGreetings = [];
             return;
         }
         const buildPreview = (text) => {
@@ -3399,7 +3536,7 @@ async function openChubCharPreview(char) {
             }, { once: true });
         });
         if (altGreetingsCountEl) altGreetingsCountEl.textContent = `(${greetings.length})`;
-        window.currentChubAltGreetings = greetings;
+        window.currentBrowseAltGreetings = greetings;
     };
 
     // Render from basic data if already present
@@ -3408,6 +3545,9 @@ async function openChubCharPreview(char) {
     const applyDetailData = (node) => {
         if (!node) return;
         const def = node.definition || {};
+
+        // Clear the loading indicator
+        if (defLoading) defLoading.style.display = 'none';
 
         // Update Creator's Notes if node has better/different description than search result
         // node.description is the PUBLIC listing description (Creator's Notes)
@@ -3428,6 +3568,13 @@ async function openChubCharPreview(char) {
             scenarioSection.style.display = 'block';
             scenarioEl.innerHTML = DOMPurify.sanitize(formatRichText(def.scenario, char.name, true), BROWSE_PURIFY_CONFIG);
             scenarioEl.dataset.fullContent = def.scenario;
+        }
+
+        // Example Dialogs
+        if (def.mes_example) {
+            examplesSection.style.display = 'block';
+            examplesEl.innerHTML = DOMPurify.sanitize(formatRichText(def.mes_example, char.name, true), BROWSE_PURIFY_CONFIG);
+            examplesEl.dataset.fullContent = def.mes_example;
         }
 
         // First message - ChubAI uses first_message, not first_mes
@@ -3482,6 +3629,7 @@ async function openChubCharPreview(char) {
                         definition: node.definition ? {
                             personality: node.definition.personality,
                             scenario: node.definition.scenario,
+                            mes_example: node.definition.mes_example,
                             first_message: node.definition.first_message,
                             first_mes: node.definition.first_mes,
                             alternate_greetings: node.definition.alternate_greetings,
@@ -3501,8 +3649,10 @@ async function openChubCharPreview(char) {
                 debugLog('[ChubAI] Detail fetch aborted (modal closed)');
             } else {
                 debugLog('[ChubAI] Could not fetch detailed character info:', e.message);
+                if (chubSelectedChar === char && defLoading) {
+                    defLoading.innerHTML = '<em style="color: var(--text-secondary, #888)">Could not load character definition. The character can still be imported with basic info.</em>';
+                }
             }
-            // Modal still works with basic info
         }
     }
 }
@@ -3692,7 +3842,10 @@ async function toggleChubCharFavorite() {
  */
 function cleanupChubCharModal() {
     // Release window globals
-    window.currentChubAltGreetings = null;
+    window.currentBrowseAltGreetings = null;
+
+    const defLoading = document.getElementById('chubCharDefinitionLoading');
+    if (defLoading) { defLoading.style.display = 'none'; defLoading.innerHTML = '<div style="color: var(--text-secondary, #888); padding: 8px 0;"><i class="fa-solid fa-spinner fa-spin"></i> Loading character definition...</div>'; }
     
     const modal = document.getElementById('chubCharModal');
     if (modal) {
@@ -3860,12 +4013,9 @@ async function downloadChubCharacter() {
 
 // ========================================
 // WINDOW EXPORTS
-// Functions called from onclick="" HTML strings or from library.js
+// Functions called from library.js
 // ========================================
 
-window.loadChubCharacters = loadChubCharacters;
-window.loadChubTimeline = loadChubTimeline;
-window.openChubTokenModal = openChubTokenModal;
 window.openChubCharPreview = openChubCharPreview;
 
 // ========================================

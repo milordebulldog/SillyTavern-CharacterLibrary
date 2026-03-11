@@ -1,5 +1,24 @@
 import * as CoreAPI from './core-api.js';
 
+function copyToClipboard(text) {
+    if (navigator.clipboard?.writeText) {
+        return navigator.clipboard.writeText(text);
+    }
+    return new Promise((resolve, reject) => {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        try {
+            document.execCommand('copy') ? resolve() : reject(new Error('execCommand failed'));
+        } catch (e) { reject(e); }
+        finally { document.body.removeChild(textarea); }
+    });
+}
+
 let isInitialized = false;
 let menuElement = null;
 let currentCharacter = null;
@@ -499,6 +518,10 @@ async function bulkToggleFavorites(setFavorite) {
 async function bulkExport() {
     const selected = CoreAPI.getSelectedCharacters();
     if (selected.length === 0) return;
+
+    if (CoreAPI.getSetting('exportAsLinks')) {
+        return bulkExportLinks(selected);
+    }
     
     CoreAPI.showToast(`Exporting ${selected.length} characters...`, 'info');
     
@@ -531,6 +554,30 @@ async function bulkExport() {
     }
     
     CoreAPI.showToast(`Exported ${successCount}/${selected.length} characters`, 'success');
+}
+
+function bulkExportLinks(selected) {
+    const links = [];
+    let skipped = 0;
+    for (const char of selected) {
+        const match = CoreAPI.getCharacterProvider(char);
+        if (match) {
+            const url = match.provider.getCharacterUrl?.(match.linkInfo);
+            if (url) { links.push(url); continue; }
+        }
+        skipped++;
+    }
+    if (links.length === 0) {
+        CoreAPI.showToast('No linked characters to export', 'warning');
+        return;
+    }
+    copyToClipboard(links.join('\n')).then(() => {
+        let msg = `${links.length} link${links.length !== 1 ? 's' : ''} copied to clipboard`;
+        if (skipped > 0) msg += ` (${skipped} unlinked skipped)`;
+        CoreAPI.showToast(msg, 'success');
+    }).catch(() => {
+        CoreAPI.showToast('Failed to copy to clipboard', 'error');
+    });
 }
 
 async function bulkDelete() {
@@ -719,11 +766,24 @@ async function bulkDelete() {
 }
 
 async function exportCharacter(char) {
+    if (CoreAPI.getSetting('exportAsLinks')) {
+        const match = CoreAPI.getCharacterProvider(char);
+        if (match) {
+            const url = match.provider.getCharacterUrl?.(match.linkInfo);
+            if (url) {
+                copyToClipboard(url).then(() => {
+                    CoreAPI.showToast('Link copied to clipboard', 'success');
+                }).catch(() => {
+                    CoreAPI.showToast('Failed to copy to clipboard', 'error');
+                });
+                return;
+            }
+        }
+        CoreAPI.showToast('Character has no provider link — exporting PNG', 'info');
+    }
+
     try {
-        // Character PNGs are served directly at /characters/avatar.png
-        // These contain embedded character data (PNG tEXt chunks)
         const avatarUrl = `/characters/${encodeURIComponent(char.avatar)}`;
-        
         const response = await fetch(avatarUrl);
         
         if (response.ok) {
@@ -731,7 +791,6 @@ async function exportCharacter(char) {
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            // Use character name for filename, fallback to avatar filename
             const filename = char.name ? `${char.name}.png` : char.avatar;
             a.download = filename;
             document.body.appendChild(a);

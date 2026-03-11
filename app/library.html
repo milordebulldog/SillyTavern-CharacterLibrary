@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -110,6 +110,9 @@
                         </button>
                         <button id="bulkAutoLinkBtn" class="dropdown-item">
                             <i class="fa-solid fa-link"></i> Auto-Link Characters
+                        </button>
+                        <button id="recommenderBtn" class="dropdown-item">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i> Card Recommender
                         </button>
                         <div class="dropdown-divider"></div>
                         <button id="menuRefreshBtn" class="dropdown-item topbar-overflow-item">
@@ -609,7 +612,7 @@
                 <div class="chub-link-sidebar">
                     <div class="chub-link-avatar-wrapper">
                         <img id="chubLinkCharAvatar" class="chub-link-avatar" src="" alt="Character">
-                        <div id="chubLinkStatusIcon" class="chub-link-status-icon unlinked">
+                        <div id="providerLinkStatusIcon" class="chub-link-status-icon unlinked">
                             <i class="fa-solid fa-link-slash"></i>
                         </div>
                     </div>
@@ -626,11 +629,7 @@
                         </a>
                         
                         <!-- Quick stats from linked character -->
-                        <div id="chubLinkStats" class="chub-link-stats">
-                            <span><i class="fa-solid fa-download"></i> <span id="chubLinkStars">-</span></span>
-                            <span><i class="fa-solid fa-heart"></i> <span id="chubLinkFavorites">-</span></span>
-                            <span><i class="fa-solid fa-coins"></i> <span id="chubLinkTokens">-</span></span>
-                        </div>
+                        <div id="providerLinkStats" class="chub-link-stats"></div>
                         
                         <div class="chub-link-actions">
                             <button id="chubLinkViewInGalleryBtn" class="chub-link-btn primary">
@@ -960,19 +959,19 @@ https://jannyai.com/characters/uuid_slug
                 <!-- Results Phase -->
                 <div id="bulkAutoLinkResults" class="bulk-auto-link-phase hidden">
                     <div class="bulk-auto-link-tabs">
-                        <button class="bulk-auto-link-tab active" data-tab="confident" onclick="switchBulkAutoLinkTab('confident')">
+                        <button class="bulk-auto-link-tab active" data-tab="confident">
                             <i class="fa-solid fa-check-circle"></i> Confident (<span id="bulkAutoLinkConfidentTabCount">0</span>)
                         </button>
-                        <button class="bulk-auto-link-tab" data-tab="uncertain" onclick="switchBulkAutoLinkTab('uncertain')">
+                        <button class="bulk-auto-link-tab" data-tab="uncertain">
                             <i class="fa-solid fa-question-circle"></i> Needs Review (<span id="bulkAutoLinkUncertainTabCount">0</span>)
                         </button>
-                        <button class="bulk-auto-link-tab" data-tab="nomatch" onclick="switchBulkAutoLinkTab('nomatch')">
+                        <button class="bulk-auto-link-tab" data-tab="nomatch">
                             <i class="fa-solid fa-times-circle"></i> No Match (<span id="bulkAutoLinkNoMatchTabCount">0</span>)
                         </button>
                     </div>
                     <div class="bulk-auto-link-actions" id="bulkAutoLinkConfidentActions">
-                        <button class="action-btn small secondary" onclick="bulkAutoLinkSelectAll()"><i class="fa-solid fa-check-double"></i> Select All</button>
-                        <button class="action-btn small secondary" onclick="bulkAutoLinkDeselectAll()"><i class="fa-solid fa-square"></i> Deselect All</button>
+                        <button class="action-btn small secondary bulk-auto-link-select-all"><i class="fa-solid fa-check-double"></i> Select All</button>
+                        <button class="action-btn small secondary bulk-auto-link-deselect-all"><i class="fa-solid fa-square"></i> Deselect All</button>
                     </div>
                     <div class="bulk-auto-link-list-container">
                         <div id="bulkAutoLinkConfidentList" class="bulk-auto-link-list"></div>
@@ -995,204 +994,418 @@ https://jannyai.com/characters/uuid_slug
                 <h3><i class="fa-solid fa-circle-info"></i> Help & Tips</h3>
                 <button class="close-confirm-btn" id="closeGalleryInfoModal">&times;</button>
             </div>
-            <div class="confirm-modal-body gallery-info-body">
-                
-                <div class="info-section">
-                    <h4><i class="fa-solid fa-magnifying-glass"></i> Search Filters</h4>
-                    <p>Use special search prefixes to filter your character library:</p>
-                    <div class="info-code-list">
-                        <div class="info-code-item">
-                            <code>creator:name</code>
-                            <span>Filter by author/creator name</span>
+            <div class="help-layout">
+                <nav class="help-sidebar">
+                    <ul class="help-nav">
+                        <li class="help-nav-item active" data-section="getting-started">
+                            <i class="fa-solid fa-compass"></i>
+                            <span>Getting Started</span>
+                        </li>
+                        <li class="help-nav-item" data-section="search-tags">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                            <span>Search & Tags</span>
+                        </li>
+                        <li class="help-nav-item" data-section="providers">
+                            <i class="fa-solid fa-globe"></i>
+                            <span>Providers</span>
+                        </li>
+                        <li class="help-nav-item" data-section="card-management">
+                            <i class="fa-solid fa-id-card"></i>
+                            <span>Card Management</span>
+                        </li>
+                        <li class="help-nav-item" data-section="media">
+                            <i class="fa-solid fa-images"></i>
+                            <span>Media & Gallery</span>
+                        </li>
+                        <li class="help-nav-item" data-section="tools">
+                            <i class="fa-solid fa-toolbox"></i>
+                            <span>Tools</span>
+                        </li>
+                        <li class="help-nav-item" data-section="shortcuts">
+                            <i class="fa-solid fa-keyboard"></i>
+                            <span>Shortcuts</span>
+                        </li>
+                    </ul>
+                </nav>
+                <div class="help-content">
+
+                    <!-- Getting Started -->
+                    <div class="help-panel active" data-section="getting-started">
+                        <div class="info-section">
+                            <h4><i class="fa-solid fa-compass"></i> Views</h4>
+                            <p>The app has three main views, accessible via the tabs at the top:</p>
+                            <ul>
+                                <li><strong>Characters</strong>: Your local library. Browse, search, filter, and manage all your character cards</li>
+                                <li><strong>Chats</strong>: Chat history browser. View all chat logs across characters, search by content, and see which AI model was used</li>
+                                <li><strong>Online</strong>: Browse and import characters from online providers (ChubAI, JanitorAI, CharacterTavern, Pygmalion, Wyvern)</li>
+                            </ul>
+                            <p>On mobile, swipe left/right on the main screen to switch between views.</p>
                         </div>
-                        <div class="info-code-item">
-                            <code>linked:yes</code> / <code>linked:no</code>
-                            <span>Filter characters linked/not linked to any provider</span>
+                        <div class="info-section">
+                            <h4><i class="fa-solid fa-hand-pointer"></i> Character Details</h4>
+                            <p>Click any character card to open their detail modal with tabs:</p>
+                            <ul>
+                                <li><strong>Details</strong>: Card fields (description, first message, personality, etc.), creator notes, and alternate greetings</li>
+                                <li><strong>Edit</strong>: Edit all card fields directly. Click <strong>Unlock Editing</strong> first to prevent accidental changes</li>
+                                <li><strong>Chats</strong>: All conversations with this character, with message counts and last-message preview. Resume any chat directly</li>
+                                <li><strong>Gallery</strong>: Images, GIFs, video, and audio. Download embedded media and provider gallery images</li>
+                                <li><strong>Related</strong>: Find similar characters in your library by shared tags, creator, and content overlap</li>
+                                <li><strong>Versions</strong>: Local snapshots and remote version history with diff preview (shown when history exists)</li>
+                                <li><strong>Info</strong>: Technical metadata: gallery ID, version UID, spec version, provider link details, extensions (enable in Settings)</li>
+                            </ul>
                         </div>
-                        <div class="info-code-item">
-                            <code>chub:yes</code> / <code>chub:no</code>
-                            <span>Filter by ChubAI link status</span>
+                        <div class="info-section">
+                            <h4><i class="fa-solid fa-mouse"></i> Context Menu</h4>
+                            <p><strong>Right-click</strong> any character card (or <strong>long-press</strong> on mobile) for quick actions:</p>
+                            <ul>
+                                <li>Open Character, Favorite/Unfavorite, Select for Batch</li>
+                                <li>Link to Provider / Provider Info, Check for Updates</li>
+                                <li>Version History, View Gallery, Export, Delete</li>
+                            </ul>
+                            <p>When multiple characters are selected, the context menu shows bulk actions instead.</p>
                         </div>
-                        <div class="info-code-item">
-                            <code>janny:yes</code> / <code>janny:no</code>
-                            <span>Filter by JanitorAI link status</span>
-                        </div>
-                        <div class="info-code-item">
-                            <code>ct:yes</code> / <code>ct:no</code>
-                            <span>Filter by CharacterTavern link status</span>
-                        </div>
-                        <div class="info-code-item">
-                            <code>favorite:yes</code> / <code>fav:no</code>
-                            <span>Filter by favorite status</span>
-                        </div>
-                        <div class="info-code-item">
-                            <code>version:text</code>
-                            <span>Filter by character_version field (<code>version:none</code> for empty)</span>
-                        </div>
-                        <div class="info-code-item">
-                            <code>gallery:id</code>
-                            <span>Filter by gallery_id (<code>gallery:none</code> for characters without one)</span>
-                        </div>
-                        <div class="info-code-item">
-                            <code>uid:id</code>
-                            <span>Filter by version_uid (<code>uid:none</code> for characters without one)</span>
+                        <div class="info-section">
+                            <h4><i class="fa-solid fa-mobile-screen"></i> Mobile Tips</h4>
+                            <ul>
+                                <li><strong>Tap the avatar</strong> in the detail modal header for a full-size quick-view</li>
+                                <li><strong>Swipe left/right</strong> on character details to switch between tabs</li>
+                                <li><strong>Swipe left/right</strong> to cycle through alternate greetings</li>
+                                <li><strong>Long-press</strong> a character card to open the context menu (bottom sheet)</li>
+                                <li><strong>Swipe left/right</strong> on the main screen to switch views (Characters ↔ Chats ↔ Online)</li>
+                            </ul>
                         </div>
                     </div>
-                </div>
 
-                <div class="info-section">
-                    <h4><i class="fa-solid fa-clock-rotate-left"></i> Version History</h4>
-                    <p>Track changes to your character cards with snapshots and diffs:</p>
-                    <ul>
-                        <li><strong>Auto-backup:</strong> A snapshot is saved automatically before every edit, restore, or card update, so you can always undo</li>
-                        <li><strong>Manual snapshots:</strong> Save the current state of any character at any time</li>
-                        <li><strong>Diff preview:</strong> Side-by-side comparison for every card field with added/removed highlighting</li>
-                        <li><strong>Remote versions:</strong> For ChubAI-linked characters, browse the full published version history and restore any version</li>
-                    </ul>
-                    <p><strong>How remote versions work:</strong></p>
-                    <ul>
-                        <li><strong>"Chub Page" entry</strong>, shows the current state on ChubAI. Uses the metadata API for card fields, but when a linked lorebook project exists the lorebook is fetched from the V4 Git API and merged in. We use the metadata API here because the V4 Git API has data issues with some characters.</li>
-                        <li><strong>Git version history</strong>, each commit is fetched directly from the V4 Git API (<code>card.json</code>). These are the actual exported snapshots including the full merged lorebook.</li>
-                    </ul>
-                    <p class="info-tip"><i class="fa-solid fa-lightbulb"></i> Configure max auto-backup count in Settings → Version History.</p>
-                </div>
-
-                <div class="info-section">
-                    <h4><i class="fa-solid fa-link"></i> ChubAI Linking</h4>
-                    <p>Link your local characters to their ChubAI source for extra features:</p>
-                    <ul>
-                        <li><strong>Card Updates:</strong> Check for and apply field-level updates from ChubAI with diff preview</li>
-                        <li><strong>Gallery Downloads:</strong> Download character gallery images from ChubAI</li>
-                        <li><strong>Version History:</strong> Browse the full published version history from ChubAI</li>
-                        <li><strong>Quick Navigation:</strong> Jump to the ChubAI page from character details</li>
-                        <li><strong>Bulk Linking:</strong> Use "Auto-Link Characters" to auto-match by name, creator, and content similarity</li>
-                    </ul>
-                </div>
-
-                <div class="info-section">
-                    <h4><i class="fa-solid fa-book-bookmark"></i> Lorebooks & Card Updates</h4>
-                    <p>When a character card includes a lorebook (World Info), SillyTavern stores it in two places:</p>
-                    <ul>
-                        <li><strong>Embedded lorebook</strong> (inside the card), created at import time. SillyTavern does not modify this copy when you edit entries in the World Info editor.</li>
-                        <li><strong>World Info file</strong> (in <code>/worlds/</code>), the live working copy that SillyTavern uses in chats. All edits you make in the World Info panel go here.</li>
-                    </ul>
-                    <p>These two copies are <strong>independent</strong> and diverge after import.</p>
-
-                    <p><strong>How ChubAI stores lorebooks (it's messy):</strong></p>
-                    <p>ChubAI has two ways a character can have lorebook entries:</p>
-                    <ul>
-                        <li><strong>Embedded entries</strong>, baked directly into the card definition and returned by the metadata API</li>
-                        <li><strong>Linked lorebook</strong>, a separate lorebook project attached to the character. ChubAI merges these entries into the card when you export/download it, but the metadata API returns them separately (or sometimes partially)</li>
-                    </ul>
-                    <p>The metadata API can return incomplete lorebook data. For example, only the embedded entries while the linked lorebook project has dozens more. The V4 Git API (which serves the actual exported <code>card.json</code>) returns the fully merged result with all entries.</p>
-                    <p>Character Library always resolves linked lorebooks: when a character has a linked lorebook project, we fetch the full merged lorebook from the V4 Git API regardless of which API source is used for other fields. This ensures update checks and imports always see the complete lorebook.</p>
-
-                    <p><strong>What happens during a card update check:</strong></p>
-                    <ul>
-                        <li>Character Library compares the card's <strong>embedded lorebook</strong> against the creator's latest version on ChubAI (with linked lorebook entries resolved)</li>
-                        <li>New entries, modified entries, and entries only in your card (local-only) are shown in the diff</li>
-                        <li>Your World Info file is <strong>never modified</strong> by the update checker</li>
-                    </ul>
-                    <p><strong>What happens when you apply a lorebook update:</strong></p>
-                    <ul>
-                        <li>The card's embedded lorebook is replaced with the latest version from ChubAI</li>
-                        <li>Local-only entries (in your card but not on ChubAI) will be removed from the embedded copy</li>
-                        <li>Your World Info file is <strong>not touched</strong>. It keeps all your entries and edits as-is</li>
-                    </ul>
-                    <p><strong>Safety check for local-only entries:</strong></p>
-                    <ul>
-                        <li>For entries that would be removed from the card, Character Library checks whether they also exist in your World Info file</li>
-                        <li><i class="fa-solid fa-shield-halved" style="color:#81c784;"></i> <strong>Safe</strong>, the entry also exists in your World Info file, so removing it from the card won't affect your chats</li>
-                        <li><i class="fa-solid fa-triangle-exclamation" style="color:#ffb74d;"></i> <strong>Warning</strong>, the entry was not found in your World Info file and will be permanently lost after applying</li>
-                    </ul>
-                    <p class="info-tip"><i class="fa-solid fa-lightbulb"></i> <strong>TL;DR:</strong> Updates only change the card's embedded data. Your World Info file (the copy that actually matters for chats) is never modified. Linked lorebooks from ChubAI are always resolved to the full merged version.</p>
-                </div>
-
-                <div class="info-section">
-                    <h4><i class="fa-solid fa-images"></i> Media Localization</h4>
-                    <p>Download embedded remote images and reference them dynamically:</p>
-                    <ul>
-                        <li>Preserves images if the original host goes offline</li>
-                        <li>Downloads gallery images from linked ChubAI characters</li>
-                        <li>Deduplication by image hash</li>
-                        <li>URL replacement uses the original filename to match local files</li>
-                        <li>Some hosts require SillyTavern's <strong>CORS Proxy</strong> to be enabled (User Settings → Network)</li>
-                    </ul>
-                    <p class="info-tip"><i class="fa-solid fa-lightbulb"></i> Enable "Replace remote media URLs" in Settings to auto-swap URLs when viewing. Use Bulk Localization in Settings to process your entire library at once.</p>
-                </div>
-
-                <div class="info-section">
-                    <h4><i class="fa-solid fa-clone"></i> Duplicate Detection</h4>
-                    <p>The duplicate scanner compares character content to find potential duplicates:</p>
-                    <ul>
-                        <li>Compares character name, creator, description, tags, and lorebook entries</li>
-                        <li>Shows a similarity score (0-100%) for each match</li>
-                        <li>Higher scores indicate closer matches</li>
-                        <li>Review and manage duplicates to keep your library organized</li>
-                    </ul>
-                    <p class="info-tip"><i class="fa-solid fa-lightbulb"></i> Adjust the minimum score threshold in Settings to see more or fewer matches.</p>
-                </div>
-
-                <div class="info-section">
-                    <h4><i class="fa-solid fa-list-check"></i> Multi-Select & Batch Operations</h4>
-                    <p>Select multiple characters for bulk actions:</p>
-                    <ul>
-                        <li>Press <code>Space</code> or click the multi-select button to enter selection mode</li>
-                        <li>Click characters to select/deselect them</li>
-                        <li><strong>Batch Tagging:</strong> Add or remove tags across all selected characters</li>
-                        <li><strong>Batch Delete:</strong> Remove multiple characters at once</li>
-                        <li>Press <code>Escape</code> to exit multi-select mode</li>
-                    </ul>
-                </div>
-
-                <div class="info-section">
-                    <h4><i class="fa-solid fa-keyboard"></i> Keyboard Shortcuts</h4>
-                    <div class="info-code-list">
-                        <div class="info-code-item">
-                            <code>Space</code>
-                            <span>Toggle multi-select mode (character grid)</span>
+                    <!-- Search & Tags -->
+                    <div class="help-panel" data-section="search-tags">
+                        <div class="info-section">
+                            <h4><i class="fa-solid fa-magnifying-glass"></i> Search Filters</h4>
+                            <p>Use special search prefixes to filter your character library:</p>
+                            <div class="info-code-list">
+                                <div class="info-code-item">
+                                    <code>creator:name</code>
+                                    <span>Filter by author/creator name</span>
+                                </div>
+                                <div class="info-code-item">
+                                    <code>linked:yes</code> / <code>linked:no</code>
+                                    <span>Filter characters linked/not linked to any provider</span>
+                                </div>
+                                <div class="info-code-item">
+                                    <code>chub:yes</code> / <code>chub:no</code>
+                                    <span>Filter by ChubAI link status</span>
+                                </div>
+                                <div class="info-code-item">
+                                    <code>janny:yes</code> / <code>janny:no</code>
+                                    <span>Filter by JanitorAI link status</span>
+                                </div>
+                                <div class="info-code-item">
+                                    <code>ct:yes</code> / <code>ct:no</code>
+                                    <span>Filter by CharacterTavern link status</span>
+                                </div>
+                                <div class="info-code-item">
+                                    <code>pygmalion:yes</code> / <code>pygmalion:no</code>
+                                    <span>Filter by Pygmalion link status</span>
+                                </div>
+                                <div class="info-code-item">
+                                    <code>wyvern:yes</code> / <code>wyvern:no</code>
+                                    <span>Filter by Wyvern link status</span>
+                                </div>
+                                <div class="info-code-item">
+                                    <code>favorite:yes</code> / <code>fav:no</code>
+                                    <span>Filter by favorite status</span>
+                                </div>
+                                <div class="info-code-item">
+                                    <code>version:text</code>
+                                    <span>Filter by character_version field (<code>version:none</code> for empty)</span>
+                                </div>
+                                <div class="info-code-item">
+                                    <code>gallery:id</code>
+                                    <span>Filter by gallery_id (<code>gallery:none</code> for characters without one)</span>
+                                </div>
+                                <div class="info-code-item">
+                                    <code>uid:id</code>
+                                    <span>Filter by version_uid (<code>uid:none</code> for characters without one)</span>
+                                </div>
+                            </div>
+                            <p class="info-tip"><i class="fa-solid fa-lightbulb"></i> Combine prefixes with each other and with regular text: <code>creator:john linked:yes dark elf</code> finds linked characters by "john" matching "dark elf".</p>
                         </div>
-                        <div class="info-code-item">
-                            <code>Escape</code>
-                            <span>Close modals, exit multi-select mode</span>
+                        <div class="info-section">
+                            <h4><i class="fa-solid fa-tags"></i> Tag Filtering</h4>
+                            <p>Click tags in the filter panel to cycle through states:</p>
+                            <ul>
+                                <li><span class="tag-state-example include">Green</span> - Include: only show characters with this tag</li>
+                                <li><span class="tag-state-example exclude">Red</span> - Exclude: hide characters with this tag</li>
+                                <li><span class="tag-state-example neutral">Gray</span> - Neutral: no filter applied</li>
+                            </ul>
+                            <p>Multiple tag filters combine: include tags use OR logic (match any), exclude tags are all applied.</p>
                         </div>
-                        <div class="info-code-item">
-                            <code>Page Up / Page Down</code>
-                            <span>Scroll through character list</span>
-                        </div>
-                        <div class="info-code-item">
-                            <code>Home / End</code>
-                            <span>Scroll to top / bottom of character list</span>
-                        </div>
-                        <div class="info-code-item">
-                            <code>← / →</code>
-                            <span>Navigate images in gallery viewer</span>
+                        <div class="info-section">
+                            <h4><i class="fa-solid fa-tags"></i> Batch Tagging</h4>
+                            <p>Add or remove tags from multiple characters at once:</p>
+                            <ul>
+                                <li><strong>Desktop:</strong> Press <code>Space</code> or click the multi-select button in the toolbar to enter selection mode</li>
+                                <li><strong>Mobile:</strong> Long-press a card → <strong>Select for Batch</strong>, or open the More menu → <strong>Select Mode</strong></li>
+                                <li>Click characters to select/deselect, then click <strong>Edit Tags</strong> in the selection toolbar</li>
+                                <li>The tag editor shows all tags across selected characters with counts; you can see which tags are shared by all vs. only some</li>
+                                <li>Type new tags to add, or click existing tags to remove them</li>
+                            </ul>
                         </div>
                     </div>
-                </div>
 
-                <div class="info-section">
-                    <h4><i class="fa-solid fa-tags"></i> Tag Management</h4>
-                    <p>Click tags in the filter panel to cycle through states:</p>
-                    <ul>
-                        <li><span class="tag-state-example include">Green</span> - Include characters with this tag</li>
-                        <li><span class="tag-state-example exclude">Red</span> - Exclude characters with this tag</li>
-                        <li><span class="tag-state-example neutral">Gray</span> - Neutral (no filter)</li>
-                    </ul>
-                </div>
+                    <!-- Providers -->
+                    <div class="help-panel" data-section="providers">
+                        <div class="info-section">
+                            <h4><i class="fa-solid fa-link"></i> Provider Linking</h4>
+                            <p>Link your local characters to their online source for update checking, version history, and gallery downloads. Supported providers:</p>
+                            <ul>
+                                <li><strong>ChubAI</strong>: Card updates, gallery downloads, full Git version history</li>
+                                <li><strong>JanitorAI</strong>: Card linking and updates</li>
+                                <li><strong>CharacterTavern</strong>: Card linking and updates</li>
+                                <li><strong>Pygmalion</strong>: Card linking, updates, and gallery downloads</li>
+                                <li><strong>Wyvern</strong>: Card linking, updates, and gallery downloads</li>
+                            </ul>
+                            <p><strong>How to link:</strong> Click the <strong>Link</strong> indicator in the character detail sidebar, or right-click → <strong>Link to Provider</strong>. Search by name across all providers, or paste a direct URL.</p>
+                            <p><strong>Once linked:</strong></p>
+                            <ul>
+                                <li><strong>Check for Updates</strong>: Compare local vs. remote card fields with a diff preview</li>
+                                <li><strong>Gallery Downloads</strong>: Download the character's provider gallery images</li>
+                                <li><strong>Version History</strong>: Browse published version history and restore any version</li>
+                                <li><strong>Quick Navigation</strong>: Jump to the provider page or preview in-app</li>
+                            </ul>
+                        </div>
+                        <div class="info-section">
+                            <h4><i class="fa-solid fa-wand-magic-sparkles"></i> Auto-Link</h4>
+                            <p>Bulk-link your entire library automatically:</p>
+                            <ul>
+                                <li>Open from <strong>More Options (⋮) → Auto-Link Characters</strong></li>
+                                <li>Scans all unlinked characters by searching each provider's API by name</li>
+                                <li>Results are categorized: <strong>Confident</strong> (strong match, auto-selected), <strong>Uncertain</strong> (multiple matches, you pick), and <strong>No Match</strong></li>
+                                <li>Review all matches before applying. Nothing is saved until you confirm</li>
+                                <li>The scan is resumable: stop and resume later, or close and reopen without losing progress</li>
+                            </ul>
+                        </div>
+                        <div class="info-section">
+                            <h4><i class="fa-solid fa-globe"></i> Online Browsing</h4>
+                            <p>The <strong>Online</strong> tab lets you browse and import characters from providers:</p>
+                            <ul>
+                                <li>Switch between providers using the dropdown selector</li>
+                                <li>Search, sort, and filter by tags/categories. Each provider has its own options</li>
+                                <li>Toggle NSFW content visibility per provider</li>
+                                <li>Cards already in your library are marked with an <strong>"In Library"</strong> badge</li>
+                                <li>Click a card to preview the full character details, then import with one click</li>
+                                <li>Some providers support login for additional features (favorites, following lists)</li>
+                            </ul>
+                            <p class="info-tip"><i class="fa-solid fa-lightbulb"></i> Configure provider order and NSFW defaults in Settings → Online.</p>
+                        </div>
+                    </div>
 
-                <div class="info-section">
-                    <h4><i class="fa-solid fa-hand-pointer"></i> Quick Actions</h4>
-                    <ul>
-                        <li><strong>Right-click</strong> any character card for a context menu with quick actions</li>
-                        <li><strong>Import local PNGs</strong> via the import dialog (not just ChubAI URLs)</li>
-                        <li><strong>Chats view</strong> lets you browse all chat histories across characters with AI model badges</li>
-                        <li>On mobile: <strong>tap the avatar</strong> in the modal header for a full-size quick-view</li>
-                        <li>On mobile: <strong>swipe left/right</strong> on character details to switch between tabs</li>
-                        <li>On mobile: <strong>swipe left/right</strong> to cycle alternate greetings</li>
-                    </ul>
-                </div>
+                    <!-- Card Management -->
+                    <div class="help-panel" data-section="card-management">
+                        <div class="info-section">
+                            <h4><i class="fa-solid fa-clock-rotate-left"></i> Version History</h4>
+                            <p>Track changes to your character cards with snapshots and diffs:</p>
+                            <ul>
+                                <li><strong>Auto-backup:</strong> A snapshot is saved automatically before every edit, restore, or card update, so you can always undo</li>
+                                <li><strong>Manual snapshots:</strong> Save the current state of any character at any time</li>
+                                <li><strong>Diff preview:</strong> Side-by-side comparison for every card field with added/removed highlighting</li>
+                                <li><strong>Remote versions:</strong> For linked characters, browse the full published version history and restore any version</li>
+                            </ul>
+                            <p><strong>How ChubAI remote versions work:</strong></p>
+                            <ul>
+                                <li><strong>"Chub Page" entry</strong>: the current state on ChubAI, using the metadata API (with linked lorebooks resolved from the V4 Git API)</li>
+                                <li><strong>Git version history</strong>: each commit fetched from the V4 Git API (<code>card.json</code>), including the full merged lorebook</li>
+                            </ul>
+                            <p class="info-tip"><i class="fa-solid fa-lightbulb"></i> Configure max auto-backup count in Settings → General → Version History.</p>
+                        </div>
+                        <div class="info-section">
+                            <h4><i class="fa-solid fa-pen-to-square"></i> Card Editing</h4>
+                            <p>Edit all character card fields directly in the library:</p>
+                            <ul>
+                                <li>Open a character → switch to the <strong>Edit</strong> tab → click <strong>Unlock Editing</strong></li>
+                                <li>All fields are locked by default to prevent accidental changes</li>
+                                <li>Editable fields: name, description, personality, scenario, first message, alternate greetings, example messages, system prompt, post-history instructions, creator, creator notes, character version, tags, and the embedded lorebook</li>
+                                <li>Use the <strong>expand</strong> buttons for full-screen editing of long text fields</li>
+                                <li>A snapshot is auto-saved before each edit so you can always undo</li>
+                            </ul>
+                        </div>
+                        <div class="info-section">
+                            <h4><i class="fa-solid fa-book-bookmark"></i> Lorebooks & Card Updates</h4>
+                            <p>When a character card includes a lorebook (World Info), SillyTavern stores it in two places:</p>
+                            <ul>
+                                <li><strong>Embedded lorebook</strong> (inside the card): created at import time, not modified by SillyTavern's World Info editor</li>
+                                <li><strong>World Info file</strong> (in <code>/worlds/</code>): the live working copy used in chats. All your edits go here</li>
+                            </ul>
+                            <p>These two copies are <strong>independent</strong> and diverge after import.</p>
+                            <p><strong>During a card update check:</strong></p>
+                            <ul>
+                                <li>The card's embedded lorebook is compared against the creator's latest version on the provider</li>
+                                <li>New, modified, and local-only entries are shown in the diff</li>
+                                <li>Your World Info file is <strong>never modified</strong> by the update checker</li>
+                            </ul>
+                            <p><strong>When you apply a lorebook update:</strong></p>
+                            <ul>
+                                <li>The card's embedded lorebook is replaced with the latest version</li>
+                                <li>Local-only entries (in your card but not on the provider) are removed from the embedded copy</li>
+                                <li>Your World Info file is <strong>not touched</strong></li>
+                            </ul>
+                            <p><strong>Safety check for local-only entries:</strong></p>
+                            <ul>
+                                <li><i class="fa-solid fa-shield-halved" style="color:#81c784;"></i> <strong>Safe</strong>: also exists in your World Info file</li>
+                                <li><i class="fa-solid fa-triangle-exclamation" style="color:#ffb74d;"></i> <strong>Warning</strong>: not found in your World Info file, will be permanently lost</li>
+                            </ul>
+                            <p class="info-tip"><i class="fa-solid fa-lightbulb"></i> <strong>TL;DR:</strong> Updates only change the card's embedded data. Your World Info file (the copy that matters for chats) is never modified.</p>
+                        </div>
+                        <div class="info-section">
+                            <h4><i class="fa-solid fa-clone"></i> Duplicate Detection</h4>
+                            <p>Find potential duplicates in your library:</p>
+                            <ul>
+                                <li>Open from <strong>More Options (⋮) → Find Duplicates</strong></li>
+                                <li>Compares character name, creator, description, tags, and lorebook entries</li>
+                                <li>Shows a similarity score (0-100%) for each match</li>
+                                <li>Review matches and delete unwanted duplicates</li>
+                            </ul>
+                            <p class="info-tip"><i class="fa-solid fa-lightbulb"></i> Adjust the minimum score threshold in Settings to control sensitivity.</p>
+                        </div>
+                    </div>
 
+                    <!-- Media & Gallery -->
+                    <div class="help-panel" data-section="media">
+                        <div class="info-section">
+                            <h4><i class="fa-solid fa-expand"></i> Gallery Viewer</h4>
+                            <p>Full-screen media viewer for character gallery images, GIFs, and videos:</p>
+                            <ul>
+                                <li>Open from right-click → <strong>View Gallery</strong>, or from the character detail modal</li>
+                                <li>Navigate with <strong>arrow keys</strong> (← →), click left/right halves of the image, or use the prev/next buttons</li>
+                                <li><strong>Scroll wheel</strong> to zoom (up to 5×), <strong>drag</strong> to pan when zoomed, <strong>click</strong> or press <code>0</code> to reset zoom</li>
+                                <li>Thumbnail strip at the bottom for quick jumping between images</li>
+                                <li>Supports images, GIFs, and video (mp4/webm). Press <code>Escape</code> to close</li>
+                            </ul>
+                        </div>
+                        <div class="info-section">
+                            <h4><i class="fa-solid fa-download"></i> Media Localization</h4>
+                            <p>Download remote media (images, audio, video) referenced in character cards for offline access:</p>
+                            <ul>
+                                <li>Scans card text fields for remote URLs and downloads each file to the character's gallery folder</li>
+                                <li>Also downloads gallery images from linked providers</li>
+                                <li>Deduplication by file hash; won't re-download files you already have</li>
+                                <li>Some hosts require SillyTavern's <strong>CORS Proxy</strong> to be enabled (User Settings → Network)</li>
+                            </ul>
+                            <p class="info-tip"><i class="fa-solid fa-lightbulb"></i> Enable "Replace remote media URLs" in Settings to auto-swap URLs when viewing. Use Bulk Localization in Settings → Media to process your entire library at once.</p>
+                        </div>
+                        <div class="info-section">
+                            <h4><i class="fa-solid fa-folder-tree"></i> Gallery Sync</h4>
+                            <p>When <strong>Unique Gallery Folders</strong> is enabled (Settings → Gallery Folders), each character gets their own gallery folder even if they share names.</p>
+                            <ul>
+                                <li>Gallery Sync audits the integrity of folder mappings on startup</li>
+                                <li>Identifies: missing gallery IDs, broken folder mappings, orphaned mappings for deleted characters</li>
+                                <li>View the audit status from <strong>More Options (⋮) → Gallery Sync Status</strong></li>
+                                <li>Can auto-repair missing IDs and mappings</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <!-- Tools -->
+                    <div class="help-panel" data-section="tools">
+                        <div class="info-section">
+                            <h4><i class="fa-solid fa-wand-magic-sparkles"></i> AI Recommender</h4>
+                            <p>Get AI-powered character recommendations based on a natural-language prompt:</p>
+                            <ul>
+                                <li>Open from <strong>More Options (⋮) → Card Recommender</strong></li>
+                                <li>Describe what you're looking for (e.g. "cozy fantasy characters", "dark horror scenarios")</li>
+                                <li>Samples characters from your library and sends their metadata to an LLM</li>
+                                <li>Works with your active SillyTavern Chat Completion source, or a custom OpenAI-compatible API</li>
+                                <li><strong>Batch Mode</strong> for wider library coverage: splits the pool across multiple LLM calls</li>
+                                <li>Filter the sample pool by favorites, chat history, date range, and tags</li>
+                            </ul>
+                            <p class="info-tip"><i class="fa-solid fa-lightbulb"></i> The recommender only sends character names, tags, creator, and taglines, not conversation history or full card text.</p>
+                        </div>
+                        <div class="info-section">
+                            <h4><i class="fa-solid fa-list-check"></i> Multi-Select & Batch Operations</h4>
+                            <p>Select multiple characters for bulk actions:</p>
+                            <ul>
+                                <li><strong>Desktop:</strong> Press <code>Space</code> or click the multi-select button, then click cards to select</li>
+                                <li><strong>Mobile:</strong> Long-press a card → <strong>Select for Batch</strong>, or More menu → <strong>Select Mode</strong></li>
+                                <li>Press <code>Escape</code> to exit selection mode</li>
+                            </ul>
+                            <p><strong>Available bulk actions:</strong></p>
+                            <ul>
+                                <li><strong>Edit Tags</strong>: Batch add/remove tags across all selected characters</li>
+                                <li><strong>Check for Updates</strong>: Check all selected linked characters for remote updates</li>
+                                <li><strong>Favorite / Unfavorite</strong>: Toggle favorites in bulk</li>
+                                <li><strong>Export</strong>: Export multiple characters at once</li>
+                                <li><strong>Delete</strong>: Remove multiple characters</li>
+                            </ul>
+                        </div>
+                        <div class="info-section">
+                            <h4><i class="fa-solid fa-file-import"></i> Importing Characters</h4>
+                            <ul>
+                                <li><strong>From URL:</strong> Paste one or more character URLs (one per line) from any supported provider</li>
+                                <li><strong>From PNG:</strong> Drag & drop or browse local character card PNG files</li>
+                                <li><strong>From Online tab:</strong> Browse providers and import with one click from the preview modal</li>
+                                <li>Progress tracking and error logging for multi-character imports</li>
+                                <li>After import, characters are automatically checked for duplicates and can be auto-linked to their source</li>
+                            </ul>
+                        </div>
+                        <div class="info-section">
+                            <h4><i class="fa-solid fa-comments"></i> Chat History Browser</h4>
+                            <p>The <strong>Chats</strong> tab lets you browse all chat histories across all characters:</p>
+                            <ul>
+                                <li>Two view modes: <strong>flat grid</strong> (all chats as cards) or <strong>grouped by character</strong></li>
+                                <li>Sort by date, character name, message count, chat length, or most active character</li>
+                                <li>Each chat card shows character name, last message preview, message count, date, and AI model badge</li>
+                                <li>Click to preview the full conversation with rendered messages</li>
+                                <li>Open chats directly in SillyTavern or delete them</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <!-- Shortcuts -->
+                    <div class="help-panel" data-section="shortcuts">
+                        <div class="info-section">
+                            <h4><i class="fa-solid fa-keyboard"></i> Keyboard Shortcuts</h4>
+                            <div class="info-code-list">
+                                <div class="info-code-item">
+                                    <code>Space</code>
+                                    <span>Toggle multi-select mode (character grid)</span>
+                                </div>
+                                <div class="info-code-item">
+                                    <code>Escape</code>
+                                    <span>Close modals, exit multi-select, close gallery viewer</span>
+                                </div>
+                                <div class="info-code-item">
+                                    <code>← / →</code>
+                                    <span>Navigate images in gallery viewer</span>
+                                </div>
+                                <div class="info-code-item">
+                                    <code>0</code>
+                                    <span>Reset zoom in gallery viewer</span>
+                                </div>
+                                <div class="info-code-item">
+                                    <code>Page Up / Page Down</code>
+                                    <span>Scroll through character list</span>
+                                </div>
+                                <div class="info-code-item">
+                                    <code>Home / End</code>
+                                    <span>Scroll to top / bottom of character list</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="info-section">
+                            <h4><i class="fa-solid fa-ellipsis-vertical"></i> More Options Menu</h4>
+                            <p>The <strong>⋮ More Options</strong> button in the topbar contains additional tools:</p>
+                            <ul>
+                                <li><strong>Import Characters</strong>: Import from URL or local PNG file</li>
+                                <li><strong>Find Duplicates</strong>: Scan your library for potential duplicate characters</li>
+                                <li><strong>Auto-Link Characters</strong>: Bulk-link unlinked characters to providers</li>
+                                <li><strong>Card Recommender</strong>: AI-powered character recommendations</li>
+                                <li><strong>Gallery Sync Status</strong>: Audit gallery folder mappings</li>
+                                <li><strong>Help & Tips</strong>: This modal</li>
+                                <li><strong>Gallery Settings</strong>: Configure gallery folders, media localization, and provider settings</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                </div>
             </div>
             <div class="confirm-modal-footer">
                 <button id="closeGalleryInfoModalBtn" class="action-btn secondary"><i class="fa-solid fa-check"></i> Got it</button>
@@ -1417,6 +1630,15 @@ https://jannyai.com/characters/uuid_slug
                             <p class="settings-panel-desc">Configure online character source connections and features</p>
                         </div>
 
+                        <!-- Provider Order -->
+                        <div class="settings-group" id="providerOrderGroup">
+                            <div class="settings-group-title"><i class="fa-solid fa-arrow-down-short-wide"></i> Provider Order &amp; Defaults</div>
+                            <p class="settings-hint" style="margin-bottom: 12px;">Drag to reorder. First provider opens by default in the Online tab.</p>
+                            <div id="providerOrderList" class="provider-order-list">
+                                <!-- Populated dynamically by JS -->
+                            </div>
+                        </div>
+
                         <!-- ChubAI provider settings -->
                         <details class="settings-provider-section">
                             <summary>
@@ -1437,7 +1659,7 @@ https://jannyai.com/characters/uuid_slug
                                     </div>
                                     <div class="settings-row">
                                         <label>
-                                            <input type="checkbox" id="settingsRememberToken"> Remember token
+                                            <input type="checkbox" id="settingsRememberToken" checked> Remember token
                                         </label>
                                         <span class="settings-hint">Token location: DevTools → Application → Cookies → "__Secure-next-auth.session-token"</span>
                                     </div>
@@ -1490,7 +1712,7 @@ https://jannyai.com/characters/uuid_slug
                                     </div>
                                     <div class="settings-row">
                                         <label>
-                                            <input type="checkbox" id="settingsPygmalionRememberCredentials"> Remember credentials (auto-refresh token)
+                                            <input type="checkbox" id="settingsPygmalionRememberCredentials" checked> Remember credentials (auto-refresh token)
                                         </label>
                                         <span class="settings-hint">Credentials are stored locally and used to log in via the cl-helper server plugin. Never sent to third parties.</span>
                                     </div>
@@ -1523,6 +1745,43 @@ https://jannyai.com/characters/uuid_slug
                                             </button>
                                         </div>
                                         <span class="settings-hint">Paste your session cookie from DevTools → Application → Cookies. Expires after ~10 days. Required for NSFW content visibility.</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </details>
+
+                        <!-- Wyvern provider settings -->
+                        <details class="settings-provider-section" id="settingsWyvernSection">
+                            <summary>
+                                <i class="fa-solid fa-dragon provider-icon"></i> Wyvern
+                                <i class="fa-solid fa-chevron-right provider-chevron"></i>
+                            </summary>
+                            <div class="settings-provider-body">
+                                <div class="settings-group" id="wyvernSettingsFields">
+                                    <div class="settings-group-title"><i class="fa-solid fa-sign-in-alt"></i> Login</div>
+                                    <div class="settings-row">
+                                        <label for="settingsWyvernEmail">Email:</label>
+                                        <div class="settings-input-group">
+                                            <input type="email" id="settingsWyvernEmail" placeholder="your-email@example.com" autocomplete="email">
+                                        </div>
+                                    </div>
+                                    <div class="settings-row">
+                                        <label for="settingsWyvernPassword">Password:</label>
+                                        <div class="settings-input-group">
+                                            <input type="password" id="settingsWyvernPassword" placeholder="Your Wyvern password" autocomplete="current-password" data-sensitive="true">
+                                            <button id="toggleWyvernPasswordVisibility" class="glass-btn icon-only" title="Show/Hide">
+                                                <i class="fa-solid fa-eye"></i>
+                                            </button>
+                                            <button id="validateWyvernBtn" class="settings-verify-btn" title="Validate Credentials">
+                                                <i class="fa-solid fa-check"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="settings-row">
+                                        <label>
+                                            <input type="checkbox" id="settingsWyvernRememberCredentials" checked> Remember credentials (auto-refresh token)
+                                        </label>
+                                        <span class="settings-hint">Credentials are stored locally and used to authenticate via Firebase. Never sent to third parties.</span>
                                     </div>
                                 </div>
                             </div>
@@ -1749,12 +2008,22 @@ https://jannyai.com/characters/uuid_slug
                             </div>
                         </div>
                         
+                        <div class="settings-group">
+                            <div class="settings-group-title"><i class="fa-solid fa-link"></i> Export</div>
+                            <div class="settings-row">
+                                <label>
+                                    <input type="checkbox" id="settingsExportAsLinks"> Export as provider links
+                                </label>
+                                <span class="settings-hint">Copy provider URLs to clipboard instead of downloading PNGs. Unlinked characters are skipped. Useful for sharing or reimporting in another session.</span>
+                            </div>
+                        </div>
+                        
 
                         
                         <div class="settings-group">
                             <div class="settings-group-title"><i class="fa-solid fa-info-circle"></i> Version Info</div>
                             <div class="settings-row">
-                                <span class="settings-hint" style="font-family: monospace;">Character Library v4.5.5</span>
+                                <span class="settings-hint" style="font-family: monospace;">Character Library v4.6.0</span>
                             </div>
                         </div>
                     </div>

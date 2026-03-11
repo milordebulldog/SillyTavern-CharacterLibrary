@@ -45,11 +45,11 @@ A powerful SillyTavern extension for discovering, organizing, and managing your 
 - **Grid view** with virtual-scroll and progressive lazy-loading
 - **Search** across name, tags, author, and creator's notes, plus [special search filters](#search-filters)
 - **Tag filtering** with include/exclude/neutral tri-state logic
-- **Sort** by name, last modified, date created, or date added
+- **Sort** by name, last modified, or date created
 - **Favorites** filter, with SillyTavern native favorites sync
 - **Card updates** from any linked provider with field-level diffs (single or batch)
 - **Batch tagging** to add or remove tags across multiple characters at once
-- **Multi-select** for batch tagging, deletion, or export
+- **Multi-select** for batch tagging, favorites, update checks, export, or deletion
 - **Right-click context menu** on any character card for quick actions
 - **Version history & snapshots** with save/restore, remote version browsing, and full diff preview
 
@@ -61,10 +61,10 @@ Click any character for a **rich tabbed interface**:
 |-----|-------------|
 | **Details** | Rich markdown/HTML/CSS rendering in a secure sandboxed iframe, embedded images, creator notes, alternate greetings, embedded lorebooks |
 | **Edit** | Full character card editor with change tracking and visual diff preview |
-| **Gallery** | Images (PNG/JPG/WebP/GIF), video, and audio (MP3/WAV/OGG/M4A) with built-in players |
 | **Chats** | All conversations with message counts; resume any chat directly |
+| **Gallery** | Images (PNG/JPG/WebP/GIF), video, and audio (MP3/WAV/OGG/M4A) with built-in players. Download embedded media and provider galleries |
 | **Related** | Smart recommendations based on shared tags, creator, and content keywords |
-| **Versions** | Local snapshots and remote version history (ChubAI) with diff preview |
+| **Versions** | Local snapshots and remote version history with diff preview (shown when history exists) |
 | **Info** | Debug/metadata panel for power users (enable in Settings) |
 
 **Edit Lock** prevents accidental changes.
@@ -78,9 +78,9 @@ Click any character for a **rich tabbed interface**:
 
 - **Gallery tab** for all character images, video, and audio in one place
 - **Embedded media downloads** for images linked in creator notes, descriptions, and greetings
-- **Provider gallery downloads** from linked characters on ChubAI or Pygmalion
+- **Provider gallery downloads** from linked characters on ChubAI, Wyvern, or Pygmalion
 - **Audio & video support** including MP3, WAV, OGG, M4A with built-in player; video thumbnails with inline playback
-- **Full-screen viewer** with keyboard navigation, zoom, and slideshow
+- **Full-screen viewer** with keyboard navigation (← → 0 Esc) and scroll-wheel zoom up to 5× with drag-to-pan
 - **Bulk localization** across your whole library from Settings, with progress tracking, abort, and history
 - **Optional provider gallery** inclusion in bulk localization
 
@@ -110,7 +110,7 @@ Keep provider-linked characters in sync with their online source:
 2. Review side-by-side diffs for each field
 3. Apply selected fields or apply all in batch
 
-Updates are fetched from the provider's API and only change the fields you choose. Works with all four providers — ChubAI, JanitorAI, CharacterTavern, and Pygmalion.
+Updates are fetched from the provider's API and only change the fields you choose. Works with all five providers: ChubAI, JanitorAI, CharacterTavern, Pygmalion, and Wyvern.
 
 > Review fields carefully before applying. If you manually tag your characters, skip the tags field during sync.
 
@@ -170,11 +170,71 @@ Shows relationship strength and reasoning for each suggestion.
 </details>
 
 <details>
+<summary><h3>🎲 Card Recommender</h3></summary>
+
+An AI-powered recommendation engine that uses your connected LLM to discover characters from your library based on natural-language prompts.
+
+#### How It Works
+
+1. **Describe what you want.** "Cozy fantasy girls," "dark horror villains," "sci-fi androids with deep lore," etc.
+2. Characters are **sampled from your library** and their metadata (name, tags, creator, creator notes, tagline) is sent to your LLM.
+3. The model evaluates each character against your prompt and returns a **ranked list with reasons.**
+4. Results appear as clickable cards. Tap any to open the full character detail modal.
+
+#### Batch Mode
+
+For larger libraries, Batch Mode splits your sample pool across multiple parallel batches:
+
+1. **Map phase.** The pool is divided into N batches (configurable, 3-7) and all batches are evaluated simultaneously via parallel API calls.
+2. **Reduce phase.** All picks from every batch are collected, deduplicated, and sent to a final ranking pass that selects the best overall matches.
+3. Wall-clock time stays roughly the same as a single call thanks to parallelism, but library coverage scales with the batch count (e.g. 5 batches = 5x more characters evaluated).
+
+#### Sample Pool
+
+The Sample Pool controls which characters are eligible for recommendation. Apply pre-sampling filters to narrow the pool, and the "characters in pool" count updates in real time as you adjust them:
+
+- **Has Chats** / **Favorite** tri-state filters (Yes / Any / No)
+- **Date Created** range
+- **Include / Exclude tags** with autocomplete
+
+If the pool is larger than your configured Sample Size, characters are randomly selected from the filtered pool to fit. For example, with 2,000 characters matching your filters and a sample size of 600, a random subset of 600 is drawn each time you generate.
+
+#### LLM Context
+
+Controls which card metadata fields are included when sending characters to the LLM. Toggle any combination of: tags, creator notes, tagline, creator name, and source provider. A live token estimate updates as you change these, helping you stay within model context limits.
+
+#### API Modes
+
+- **SillyTavern mode** uses your active Chat Completion connection (OpenAI, Claude, OpenRouter, etc.). If you have Connection Profiles configured, a dropdown lets you pick which profile to use. Large, RP heavy presets not recommended.
+- **Custom API mode** lets you point to any OpenAI-compatible endpoint with optional API key and model. (Mostly placeholder, still WIP)
+
+#### Settings
+
+| Setting | Description |
+|---------|-------------|
+| Sample Size | Characters per batch (10-500) |
+| Batches | Parallel batch count in Batch Mode (3-7) |
+| Temperature | LLM sampling temperature (Custom API only, ST mode uses your preset) |
+| Max Results | Maximum recommendations to return |
+| LLM Context | Toggle which metadata fields to include (tags, creator notes, tagline, creator, source) with live token estimate |
+
+Access via the **⋮ menu** → **Card Recommender**.
+
+> **Requirements:** Chat Completion APIs only (not Text Completion). The model must be capable of returning structured JSON, so budget/nano models may produce unparseable results. Models like GPT-4o-mini, Claude Haiku, Gemini Flash, or equivalent work well.
+
+> **Non-deterministic.** LLMs are inherently probabilistic, so running the same prompt twice may yield different recommendations.
+
+> **Token usage.** Each generation sends your sample pool's metadata to the model. The live token estimate in Settings helps you gauge cost before generating, but it is a rough approximation based on loose averages, not an actual token count. Enabling more context fields (creator notes, tagline) increases token usage per character. In Batch Mode, tokens scale linearly with the batch count, plus a smaller reduce pass.
+
+</details>
+
+<details>
 <summary><h3>💬 Chat History Browser</h3></summary>
 
 - **Browse all conversations** across all characters
-- **Sort by** date, character, message count, or frequency
+- **Sort by** date, character name, message count, chat length, or most active character
 - **Group by character** or view flat list
+- **AI model badges** showing which model was used for each conversation
 - **Message previews** before opening
 - **Jump into any chat** without returning to SillyTavern
 
@@ -183,7 +243,7 @@ Shows relationship strength and reasoning for each suggestion.
 <details>
 <summary><h3>🗂️ Unique Gallery Folders</h3></summary>
 
-> ⚠️ **Experimental Feature** — Enable in Settings → Gallery Folders
+> ⚠️ **Experimental Feature.** Enable in Settings, Gallery Folders.
 
 #### The Problem
 SillyTavern stores gallery images in folders named after the character (e.g., `/user/images/Nami/`). Multiple characters with the same name share the same folder, mixing all their images together.
@@ -252,16 +312,16 @@ All providers share a common set of capabilities:
 
 ### Provider Feature Matrix
 
-| Feature | ChubAI | JanitorAI | CharacterTavern | Pygmalion |
-|---------|--------|-----------|-----------------|-----------|
-| Browse & Search | ✅ | ✅ | ✅ | ✅ |
-| Card Updates | ✅ | ✅ | ✅ | ✅ |
-| Character Linking | ✅ | ✅ | ✅ | ✅ |
-| Gallery Downloads | ✅ | — | — | ✅ |
-| Remote Version History | ✅ | — | — | — |
-| Following / Timeline | ✅ | — | — | ✅ |
-| Favorites | ✅ | — | — | — |
-| Auth Required | Optional | None | Optional | Optional |
+| Feature | ChubAI | JanitorAI | CharacterTavern | Pygmalion | Wyvern |
+|---------|--------|-----------|-----------------|-----------|--------|
+| Browse & Search | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Card Updates | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Character Linking | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Gallery Downloads | ✅ | -- | -- | ✅ | ✅ |
+| Remote Version History | ✅ | -- | -- | -- | -- |
+| Following / Timeline | ✅ | -- | -- | ✅ | ✅ |
+| Favorites | ✅ | -- | -- | -- | -- |
+| Auth Required | Optional | None | Optional | Optional | Optional |
 
 <details>
 <summary><h3>ChubAI</h3></summary>
@@ -354,6 +414,32 @@ CharacterTavern requires a session cookie for NSFW content. To set it up:
 
 </details>
 
+<details>
+<summary><h3>Wyvern</h3></summary>
+
+**Auth:** Optional email/password login (Firebase). No plugin required.
+
+- Browse and search the Wyvern character catalog
+- Discovery-focused sorting: popularity, recommended, newest, most likes, and most messages
+- Filter by tags and NSFW state
+- In-app character preview before import
+- Gallery downloads from linked Wyvern characters
+
+#### With Authentication
+- **Following timeline** from creators you follow
+- **Follow/Unfollow users** directly from the preview modal
+
+#### Character Library Integration
+- **Link local cards to Wyvern** for update checks and sync
+- **Auto-link on import** when importing directly from Wyvern
+
+#### Login
+1. When you enable NSFW or access a login-required feature, a login modal will appear
+2. Enter your Wyvern email and password (or set them in Settings)
+3. *(Optional)* Check "Remember credentials" for auto-refresh
+
+</details>
+
 ### Character Linking
 
 Link your local characters to their online source for updates, gallery downloads, and version history:
@@ -385,11 +471,15 @@ Type these prefixes in the search bar for targeted filtering:
 | `chub:` | `chub:yes` or `chub:no` | ChubAI link specifically |
 | `janny:` | `janny:yes` or `janny:no` | JanitorAI link specifically |
 | `ct:` | `ct:yes` or `ct:no` | CharacterTavern link specifically |
+| `pygmalion:` | `pygmalion:yes` or `pygmalion:no` | Pygmalion link specifically |
+| `wyvern:` | `wyvern:yes` or `wyvern:no` | Wyvern link specifically |
 | `version:` | `version:1.0` | Match character version string |
 | `gallery:` | `gallery:aB3x` or `gallery:none` | Match gallery ID (or `none` for unassigned) |
 | `uid:` | `uid:abc123` or `uid:none` | Match version UID (or `none` for unassigned) |
 
 Regular search matches across name, tags, author, and creator's notes (toggleable via checkboxes).
+
+Prefixes can be combined with each other and with free text. For example, `creator:john linked:yes dark elf` finds linked characters by "john" matching "dark elf" in the enabled search fields.
 
 ---
 
@@ -402,6 +492,8 @@ Regular search matches across name, tags, author, and creator's notes (toggleabl
 | `Enter` | Add tag (when tag input is focused) |
 | `Arrow Down` | Focus first tag suggestion |
 | `← / →` | Navigate images in gallery viewer |
+| `0` | Reset zoom in gallery viewer |
+| `Scroll wheel` | Zoom in/out in gallery viewer |
 
 ---
 
@@ -410,10 +502,13 @@ Regular search matches across name, tags, author, and creator's notes (toggleabl
 The full app is optimized for mobile with:
 
 - **Touch-optimized** tap targets and swipe gestures
-- **Bottom sheets** for context menus, filters, and settings (replacing desktop dropdowns)
+- **View swipe**: swipe left/right on the main screen to switch between Characters, Chats, and Online views
+- **Tab swipe**: swipe left/right on character detail tabs to navigate between them
+- **Greetings swipe**: swipe left/right to cycle alternate greetings
+- **Bottom sheets** for context menus, tag editor, filters, and settings (replacing desktop dropdowns)
 - **Full-viewport modals** for character details and previews
 - **Mobile search overlay** with dedicated search UI
-- **Gallery viewer** with double-tap zoom, drag pan, and swipe navigation
+- **Gallery viewer** with zoom, drag pan, and swipe navigation
 - **Back button handling** for modal navigation
 
 ---
@@ -435,7 +530,7 @@ The **cl-helper** plugin is required for Pygmalion and CharacterTavern login, wh
 3. **Restart SillyTavern** (plugins only load at startup)
 4. Verify in the login/auth modal (appears when enabling NSFW). You should see "cl-helper plugin detected"
 
-> The plugin runs server-side to handle auth flows that browsers can't do directly (e.g. Origin headers for Pygmalion, cookie proxying for CharacterTavern). It only communicates with the specific provider APIs — see the [plugin source](extras/cl-helper/index.js) for details.
+> The plugin runs server-side to handle auth flows that browsers can't do directly (e.g. Origin headers for Pygmalion, cookie proxying for CharacterTavern). It only communicates with the specific provider APIs. See the [plugin source](extras/cl-helper/index.js) for details.
 
 ### Media downloads fail with CORS errors
 

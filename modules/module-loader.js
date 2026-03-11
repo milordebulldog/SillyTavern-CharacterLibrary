@@ -217,20 +217,31 @@ async function initModuleSystem() {
         console.warn('[ModuleLoader] Could not load gallery-sync module:', err);
     }
 
+    try {
+        const recommenderModule = await import('./recommender.js');
+        ModuleLoader.register('recommender', recommenderModule.default);
+
+        window.openRecommender = recommenderModule.openModal;
+    } catch (err) {
+        console.warn('[ModuleLoader] Could not load recommender module:', err);
+    }
+
     // Providers — must be Tier 1 because ProviderRegistry is queried
     // during character grid rendering (link indicators, taglines, etc.)
     try {
-        const [chubMod, jannyMod, chartavernMod, pygmalionMod] = await Promise.all([
+        const [chubMod, jannyMod, chartavernMod, pygmalionMod, wyvernMod] = await Promise.all([
             import('./providers/chub/chub-provider.js'),
             import('./providers/janny/janny-provider.js'),
             import('./providers/chartavern/chartavern-provider.js'),
             import('./providers/pygmalion/pygmalion-provider.js'),
+            import('./providers/wyvern/wyvern-provider.js'),
         ]);
 
         ProviderRegistry.registerProvider(chubMod.default);
         ProviderRegistry.registerProvider(jannyMod.default);
         ProviderRegistry.registerProvider(chartavernMod.default);
         ProviderRegistry.registerProvider(pygmalionMod.default);
+        ProviderRegistry.registerProvider(wyvernMod.default);
 
         await ProviderRegistry.initProviders(CoreAPI);
         window.ProviderRegistry = ProviderRegistry;

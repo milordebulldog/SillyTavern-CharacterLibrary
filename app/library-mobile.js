@@ -266,6 +266,7 @@
         setupGallerySwipe();
         setupGreetingsSwipe();
         setupTabSwipe();
+        setupViewSwipe();
         setupContextMenu();
         setupViewportFix();
         relocateTagPopup();
@@ -357,6 +358,7 @@
             ['#bulkLocalizeSummaryModal:not(.hidden)', el => el.classList.add('hidden')],
             ['#charDuplicatesModal:not(.hidden)',     el => el.classList.add('hidden')],
             ['#importSummaryModal:not(.hidden)',      el => el.classList.add('hidden')],
+            ['#recommenderModal:not(.hidden)',        el => el.classList.add('hidden')],
             ['#importModal:not(.hidden)',             el => el.classList.add('hidden')],
             ['#deleteConfirmModal',                   el => el.remove()],
             ['#deleteDuplicateModal',                 el => el.remove()],
@@ -765,11 +767,13 @@
             const ids = getIds();
             const realBtn = ids?.modeBrowseSelector ? document.querySelector(ids.modeBrowseSelector) : null;
             if (realBtn) { realBtn.click(); setTimeout(() => { syncMode(); syncSort(); }, 100); }
+            close();
         });
         followChip.addEventListener('click', () => {
             const ids = getIds();
             const realBtn = ids?.modeFollowSelector ? document.querySelector(ids.modeFollowSelector) : null;
             if (realBtn) { realBtn.click(); setTimeout(() => { syncMode(); syncSort(); }, 100); }
+            close();
         });
 
         modeRow.appendChild(browseChip);
@@ -1172,6 +1176,8 @@
                 // Small delay so the sheet closes first
                 setTimeout(() => openGallerySyncDropdown(syncDropdown), 350);
             });
+            syncItem.dataset.gallerySyncItem = 'true';
+            if (!window.getSetting?.('uniqueGalleryFolders')) syncItem.style.display = 'none';
             sheet.appendChild(syncItem);
         }
 
@@ -1332,6 +1338,14 @@
                 e.stopPropagation();
                 const fullSrc = target.src.replace(/\/cdn-cgi\/image\/[^/]+\//, '/');
                 openAvatarViewer(fullSrc, target.src);
+            } else if (target.id === 'pygCharAvatar') {
+                if (target.src.endsWith('/img/ai4.png')) return;
+                e.stopPropagation();
+                openAvatarViewer(target.src);
+            } else if (target.id === 'wyvernCharAvatar') {
+                if (target.src.endsWith('/img/ai4.png')) return;
+                e.stopPropagation();
+                openAvatarViewer(target.src);
             }
         });
     }
@@ -1733,6 +1747,143 @@
             swiping = false;
             // Clear recentTouch after the browser fires its synthetic click
             setTimeout(() => { recentTouch = false; }, 400);
+        }, { passive: true });
+    }
+
+    /* ========================================
+       VIEW SWIPE NAVIGATION
+       Swipe left/right on main content to switch
+       between Characters ↔ Chats ↔ Online views
+       ======================================== */
+    function setupViewSwipe() {
+        const surface = document.querySelector('.gallery-content');
+        if (!surface) return;
+
+        const VIEW_ORDER = ['characters', 'chats', 'online'];
+        const SWIPE_THRESHOLD = 45;
+        const VELOCITY_THRESHOLD = 0.4;
+        const VELOCITY_MIN_DX = 25;
+        const MAX_VERTICAL = 60;
+        const DRAG_FACTOR = 0.12;
+        const DRAG_OPACITY_MIN = 0.85;
+        let startX = 0, startY = 0, startScroll = 0, startTime = 0;
+        let active = false, dragging = false, locked = false, transitioning = false;
+
+        function hasBlockingUI() {
+            return !!(
+                document.querySelector('.modal-overlay:not(.hidden)') ||
+                document.querySelector('.cl-modal.visible') ||
+                document.querySelector('.confirm-modal:not(.hidden)') ||
+                document.querySelector('.mobile-ctx-sheet.visible') ||
+                document.querySelector('.mobile-avatar-viewer') ||
+                document.querySelector('.browse-avatar-viewer') ||
+                document.querySelector('.mobile-search-overlay:not(.hidden)') ||
+                document.querySelector('.mobile-sheet-overlay:not(.hidden)') ||
+                document.querySelector('.tag-editor-sheet:not(.hidden)') ||
+                document.querySelector('#tagFilterPopup:not(.hidden)') ||
+                document.querySelector('.custom-select-menu:not(.hidden)') ||
+                document.querySelector('#galleryViewerModal.visible') ||
+                document.querySelector('#moreOptionsMenu:not(.hidden)') ||
+                document.querySelector('#settingsMenu:not(.hidden)') ||
+                document.querySelector('body > .dropdown-menu[data-mobile-relocated]:not(.hidden)') ||
+                document.querySelector('body > .browse-tags-dropdown[data-mobile-relocated]:not(.hidden)') ||
+                window.MultiSelect?.enabled
+            );
+        }
+
+        function canSwipeDirection(dx) {
+            const current = window.getCurrentView?.() || 'characters';
+            const idx = VIEW_ORDER.indexOf(current);
+            if (idx === -1) return false;
+            return dx < 0 ? idx < VIEW_ORDER.length - 1 : idx > 0;
+        }
+
+        function clearDrag() {
+            surface.style.transform = '';
+            surface.style.opacity = '';
+            surface.style.willChange = '';
+            dragging = false;
+        }
+
+        surface.addEventListener('touchstart', (e) => {
+            if (e.touches.length !== 1) { active = false; return; }
+            startX = e.touches[0].clientX;
+            startY = e.touches[0].clientY;
+            startScroll = surface.scrollTop;
+            startTime = Date.now();
+            active = !transitioning;
+            dragging = false;
+            locked = false;
+        }, { passive: true });
+
+        surface.addEventListener('touchmove', (e) => {
+            if (!active || locked || e.touches.length !== 1) return;
+            const dx = e.touches[0].clientX - startX;
+            const dy = e.touches[0].clientY - startY;
+            const absDx = Math.abs(dx);
+            const absDy = Math.abs(dy);
+
+            if (!dragging && absDx < 10 && absDy < 10) return;
+
+            // Lock to vertical if scroll-dominant
+            if (!dragging && absDy > absDx) { locked = true; return; }
+
+            if (!canSwipeDirection(dx)) { clearDrag(); return; }
+
+            dragging = true;
+            if (!surface.style.willChange) surface.style.willChange = 'transform, opacity';
+            const shift = dx * DRAG_FACTOR;
+            const opacity = Math.max(DRAG_OPACITY_MIN, 1 - (absDx * 0.0008));
+            surface.style.transform = `translateX(${shift}px)`;
+            surface.style.opacity = opacity;
+        }, { passive: true });
+
+        surface.addEventListener('touchend', (e) => {
+            if (!active) return;
+            active = false;
+
+            const dx = (e.changedTouches[0]?.clientX ?? 0) - startX;
+            const dy = (e.changedTouches[0]?.clientY ?? 0) - startY;
+            const scrollDelta = Math.abs(surface.scrollTop - startScroll);
+            const elapsed = Math.max(Date.now() - startTime, 1);
+            const velocity = Math.abs(dx) / elapsed;
+
+            // Snap back if not a valid swipe
+            const absDx = Math.abs(dx);
+            const isSwipe = absDx >= SWIPE_THRESHOLD || (velocity >= VELOCITY_THRESHOLD && absDx >= VELOCITY_MIN_DX);
+            if (!isSwipe || Math.abs(dy) > MAX_VERTICAL || scrollDelta > 10 || hasBlockingUI()) {
+                if (dragging) {
+                    surface.style.transition = 'transform 0.15s ease-out, opacity 0.15s ease-out';
+                    clearDrag();
+                    surface.addEventListener('transitionend', () => { surface.style.transition = ''; }, { once: true });
+                }
+                return;
+            }
+
+            const current = window.getCurrentView?.() || 'characters';
+            const idx = VIEW_ORDER.indexOf(current);
+            if (idx === -1) { clearDrag(); return; }
+
+            const nextIdx = dx < 0 ? idx + 1 : idx - 1;
+            if (nextIdx < 0 || nextIdx >= VIEW_ORDER.length) { clearDrag(); return; }
+
+            // Transition: set start offset, switch view, then transition to neutral
+            transitioning = true;
+            const startShift = dx < 0 ? '5%' : '-5%';
+            surface.style.willChange = 'transform, opacity';
+            surface.style.transition = 'none';
+            window.switchView(VIEW_ORDER[nextIdx]);
+            surface.style.transform = `translateX(${startShift})`;
+            surface.style.opacity = '0.86';
+            void surface.offsetWidth;
+            surface.style.transition = 'transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.22s cubic-bezier(0.22, 1, 0.36, 1)';
+            surface.style.transform = 'translateX(0)';
+            surface.style.opacity = '1';
+            surface.addEventListener('transitionend', () => {
+                surface.style.transition = '';
+                clearDrag();
+                transitioning = false;
+            }, { once: true });
         }, { passive: true });
     }
 

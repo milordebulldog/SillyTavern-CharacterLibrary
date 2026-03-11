@@ -69,11 +69,26 @@ export function getAllProviders() {
 }
 
 /**
- * Get providers that have a browsable view.
+ * Get providers that have a browsable view, respecting saved order.
  * @returns {import('./provider-interface.js').ProviderBase[]}
  */
 export function getViewProviders() {
-    return getAllProviders().filter(p => p.hasView);
+    const all = getAllProviders().filter(p => p.hasView);
+    const savedOrder = coreAPI?.getSetting?.('providerOrder');
+    if (!Array.isArray(savedOrder) || savedOrder.length === 0) return all;
+
+    const byId = new Map(all.map(p => [p.id, p]));
+    const ordered = [];
+    for (const id of savedOrder) {
+        const p = byId.get(id);
+        if (p) {
+            ordered.push(p);
+            byId.delete(id);
+        }
+    }
+    // Append any providers not in saved order (newly added)
+    for (const p of byId.values()) ordered.push(p);
+    return ordered;
 }
 
 /**
@@ -141,7 +156,9 @@ export async function activateProvider(providerId, container, filterContainer) {
     updateProviderSelector(providerId);
 
     try {
-        await provider.activate(container, { domRecreated });
+        const providerDefaults = coreAPI?.getSetting?.('providerDefaults') || {};
+        const defaults = providerDefaults[providerId] || null;
+        await provider.activate(container, { domRecreated, defaults });
     } catch (err) {
         console.error(`[ProviderRegistry] activate error for "${providerId}":`, err);
     }

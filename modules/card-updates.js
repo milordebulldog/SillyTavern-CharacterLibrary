@@ -28,10 +28,10 @@ const BASE_COMPARABLE_FIELDS = {
     // V3 additions
     'nickname': 'Nickname',
     'group_only_greetings': 'Group Only Greetings',
-    // Depth prompt
-    'depth_prompt.prompt': 'Depth Prompt Text',
-    'depth_prompt.depth': 'Depth Prompt Depth',
-    'depth_prompt.role': 'Depth Prompt Role',
+    // Depth prompt (ST stores in extensions.depth_prompt, providers may return at data.depth_prompt)
+    'depth_prompt.prompt': "Character's Note",
+    'depth_prompt.depth': "Character's Note Depth",
+    'depth_prompt.role': "Character's Note Role",
     'character_book': 'Embedded Lorebook',
 };
 
@@ -211,6 +211,16 @@ function getLinkedCharacters() {
 
 function getNestedValue(obj, path) {
     return path.split('.').reduce((o, k) => o?.[k], obj);
+}
+
+function getFieldValue(data, field) {
+    if (field.startsWith('depth_prompt.')) {
+        const sub = field.slice('depth_prompt.'.length);
+        const top = data?.depth_prompt?.[sub];
+        if (top !== undefined) return top;
+        return data?.extensions?.depth_prompt?.[sub];
+    }
+    return getNestedValue(data, field);
 }
 
 function generateLineDiff(localValue, remoteValue) {
@@ -437,8 +447,8 @@ function compareCards(localData, remoteCard, allowedFields = null) {
         if (allowedFields && !allowedFields.has(field)) {
             continue;
         }
-        const localValue = getNestedValue(localData, field);
-        const remoteValue = getNestedValue(remoteData, field);
+        const localValue = getFieldValue(localData, field);
+        const remoteValue = getFieldValue(remoteData, field);
 
         if (field === 'character_book') {
             const remoteEntries = remoteValue?.entries || [];
@@ -626,7 +636,7 @@ function renderDiffList(diffs) {
     return `
         <div class="card-update-diff-list">
             <label class="card-update-select-all">
-                <input type="checkbox" checked onchange="window.cardUpdatesToggleAll(this.checked)">
+                <input type="checkbox" checked class="card-update-select-all-cb">
                 <span>Select All</span>
             </label>
             ${diffs.map((diff, idx) => renderDiffItem(diff, idx)).join('')}
@@ -688,7 +698,7 @@ function renderDiffItem(diff, idx) {
                         <span class="card-update-diff-label">${CoreAPI.escapeHtml(diff.label)}</span>
                     </label>
                     <span class="card-update-diff-stats">${stats}</span>
-                    <button class="card-update-diff-expand" onclick="window.cardUpdatesToggleExpand(this)">
+                    <button class="card-update-diff-expand">
                         <i class="fa-solid fa-chevron-down"></i>
                     </button>
                 </div>
@@ -874,7 +884,7 @@ function renderLorebookDiff(diff, idx) {
                     </span>
                 </label>
                 <span class="card-update-diff-stats">${stats}</span>
-                <button class="card-update-diff-expand" onclick="window.cardUpdatesToggleExpand(this)">
+                <button class="card-update-diff-expand">
                     <i class="fa-solid fa-chevron-down"></i>
                 </button>
             </div>
@@ -1495,7 +1505,7 @@ async function applySingleUpdates() {
     const updatedFields = {};
     checkboxes.forEach(cb => {
         const field = cb.dataset.field;
-        const remoteValue = getNestedValue(remoteData, field);
+        const remoteValue = getFieldValue(remoteData, field);
         // null means "clear this field" — undefined would be silently dropped by JSON
         updatedFields[field] = remoteValue ?? null;
     });
@@ -1699,7 +1709,7 @@ async function applyAllBatchUpdates() {
         // Apply all diffs for this character
         const updatedFields = {};
         for (const diff of diffs) {
-            const remoteValue = getNestedValue(remoteData, diff.field);
+            const remoteValue = getFieldValue(remoteData, diff.field);
             updatedFields[diff.field] = remoteValue ?? null;
         }
         
@@ -2198,9 +2208,16 @@ function setupEventListeners() {
         }
     });
     
-    // Close on backdrop click
+    // Single modal: backdrop click + event delegation for diff controls
     document.getElementById('cardUpdateSingleModal')?.addEventListener('click', (e) => {
-        if (e.target.classList.contains('cl-modal-overlay')) closeSingleModal();
+        if (e.target.classList.contains('cl-modal-overlay')) { closeSingleModal(); return; }
+        const expandBtn = e.target.closest('.card-update-diff-expand');
+        if (expandBtn) { toggleExpand(expandBtn); return; }
+    });
+    document.getElementById('cardUpdateSingleModal')?.addEventListener('change', (e) => {
+        if (e.target.classList.contains('card-update-select-all-cb')) {
+            toggleAllCheckboxes(e.target.checked);
+        }
     });
     document.getElementById('cardUpdateBatchModal')?.addEventListener('click', (e) => {
         if (e.target.classList.contains('cl-modal-overlay')) {
@@ -2210,10 +2227,6 @@ function setupEventListeners() {
         }
     });
     
-    // Expose UI helpers to window
-    window.cardUpdatesToggleAll = toggleAllCheckboxes;
-    window.cardUpdatesToggleExpand = toggleExpand;
-
     // Event delegation for batch list: View buttons, character name clicks, and checkboxes
     const batchListEl = document.getElementById('cardUpdateBatchList');
     batchListEl?.addEventListener('click', (e) => {

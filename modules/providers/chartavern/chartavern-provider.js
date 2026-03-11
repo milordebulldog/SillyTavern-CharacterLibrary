@@ -120,6 +120,14 @@ class ChartavernProvider extends ProviderBase {
     get iconUrl() { return `${CT_SITE_BASE}/favicon.ico`; }
     get browseView() { return chartavernBrowseView; }
 
+    get linkStatFields() {
+        return {
+            stat1: { icon: 'fa-solid fa-download', label: 'Downloads' },
+            stat2: { icon: 'fa-solid fa-heart', label: 'Likes' },
+            stat3: { icon: 'fa-solid fa-coins', label: 'Tokens' },
+        };
+    }
+
     // ── Lifecycle ───────────────────────────────────────────
 
     async init(coreAPI) {
@@ -329,9 +337,9 @@ class ChartavernProvider extends ProviderBase {
             } catch (_) { /* search is best-effort */ }
 
             return {
-                downloads: card.analytics_downloads ?? null,
-                favorites: likes,
-                tokens: card.tokenTotal ?? null
+                stat1: card.analytics_downloads ?? null,
+                stat2: likes,
+                stat3: card.tokenTotal ?? null
             };
         } catch (e) {
             api?.debugLog?.('[ChartavernProvider] fetchLinkStats:', e.message);

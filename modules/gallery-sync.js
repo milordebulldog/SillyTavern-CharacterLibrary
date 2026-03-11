@@ -51,28 +51,30 @@ export function auditGalleryIntegrity() {
     
     const existingAvatars = new Set(characters.map(c => c.avatar));
     
-    for (const char of characters) {
-        const galleryId = CoreAPI.getCharacterGalleryId(char);
-        const hasMapping = folderMappings[char.avatar] !== undefined;
-        
-        if (!galleryId) {
-            result.missingGalleryId.push({
-                avatar: char.avatar,
-                name: char.name || char.data?.name || 'Unknown'
-            });
-        } else if (uniqueFoldersEnabled && !hasMapping) {
-            result.missingMapping.push({
-                avatar: char.avatar,
-                name: char.name || char.data?.name || 'Unknown',
-                galleryId
-            });
-        } else if (galleryId && hasMapping) {
-            result.healthy.push({
-                avatar: char.avatar,
-                name: char.name || char.data?.name || 'Unknown',
-                galleryId,
-                folder: folderMappings[char.avatar]
-            });
+    if (uniqueFoldersEnabled) {
+        for (const char of characters) {
+            const galleryId = CoreAPI.getCharacterGalleryId(char);
+            const hasMapping = folderMappings[char.avatar] !== undefined;
+
+            if (!galleryId) {
+                result.missingGalleryId.push({
+                    avatar: char.avatar,
+                    name: char.name || char.data?.name || 'Unknown'
+                });
+            } else if (!hasMapping) {
+                result.missingMapping.push({
+                    avatar: char.avatar,
+                    name: char.name || char.data?.name || 'Unknown',
+                    galleryId
+                });
+            } else {
+                result.healthy.push({
+                    avatar: char.avatar,
+                    name: char.name || char.data?.name || 'Unknown',
+                    galleryId,
+                    folder: folderMappings[char.avatar]
+                });
+            }
         }
     }
     
@@ -393,17 +395,40 @@ function sleep(ms) {
  * @param {Object} audit - Audit result (optional, will run audit if not provided)
  */
 export function updateWarningIndicator(audit = null) {
-    if (!audit) {
-        audit = auditGalleryIntegrity();
-    }
-    
     const syncBtn = document.getElementById('gallerySyncStatusBtn');
     const dropdown = document.getElementById('gallerySyncDropdown');
     if (!syncBtn) return;
 
-    // Reveal the container (hidden by default until first audit completes)
     const container = syncBtn.closest('.gallery-sync-container');
+    const uniqueFoldersEnabled = CoreAPI.getSetting('uniqueGalleryFolders') || false;
+
+    // Hide entirely when unique gallery folders are off — nothing to warn about
+    if (!uniqueFoldersEnabled) {
+        if (container) container.classList.add('hidden');
+        const content = dropdown?.querySelector('.sync-dropdown-content');
+        if (content) content.innerHTML = '';
+        syncBtn.classList.remove('has-issues');
+        return;
+    }
+
+    // Reveal the container (hidden by default until first audit completes)
     if (container) container.classList.remove('hidden');
+
+    // During extensions recovery, show a neutral loading state
+    if (CoreAPI.isExtensionsRecoveryInProgress()) {
+        syncBtn.classList.remove('has-issues');
+        syncBtn.title = 'Gallery sync — recovering character data…';
+        const icon = syncBtn.querySelector('i');
+        if (icon) icon.className = 'fa-solid fa-spinner fa-spin';
+        const badge = syncBtn.querySelector('.warning-badge');
+        if (badge) badge.classList.add('hidden');
+        if (dropdown) showRecoveryDropdown(dropdown);
+        return;
+    }
+
+    if (!audit) {
+        audit = auditGalleryIntegrity();
+    }
     
     const totalIssues = audit.issues.missingIds + audit.issues.missingMappings + audit.issues.orphaned;
     const badge = syncBtn.querySelector('.warning-badge');
@@ -438,6 +463,21 @@ export function updateWarningIndicator(audit = null) {
 /**
  * Update dropdown content with audit results
  */
+function showRecoveryDropdown(dropdown) {
+    if (!dropdown) return;
+    const content = dropdown.querySelector('.sync-dropdown-content');
+    if (!content) return;
+    content.innerHTML = `
+        <div class="sync-dropdown-header" style="justify-content:center;gap:10px;opacity:0.8;">
+            <i class="fa-solid fa-spinner fa-spin"></i>
+            <span>Recovering character data…</span>
+        </div>
+        <div class="sync-dropdown-stats" style="opacity:0.5;text-align:center;">
+            <span>Gallery sync status will update automatically once complete.</span>
+        </div>
+    `;
+}
+
 function updateDropdownContent(dropdown, audit) {
     if (!dropdown) return;
     
@@ -592,6 +632,12 @@ export async function init(dependencies = {}) {
                 }
                 dropdown.classList.remove('hidden');
                 
+                // During recovery, show spinner instead of running audit
+                if (CoreAPI.isExtensionsRecoveryInProgress()) {
+                    showRecoveryDropdown(dropdown);
+                    return;
+                }
+
                 // Run audit and update
                 setTimeout(() => {
                     try {
@@ -611,11 +657,19 @@ export async function init(dependencies = {}) {
             }
         });
     }
+
+    // If extensions recovery is in progress, show spinner immediately
+    if (CoreAPI.isExtensionsRecoveryInProgress()) {
+        updateWarningIndicator();
+    }
     
     // Safety-net audit — runs if processAndRender missed the audit due to module load race.
     // Does the full sync+audit+cleanup sequence, same as processAndRender.
+    // Skips if extensions recovery is still in progress (ST lazy loading) — the recovery
+    // completion handler in library.js calls runGallerySyncAudit() when it finishes.
     setTimeout(() => {
         if (window._gallerySyncAuditDone) return;
+        if (CoreAPI.isExtensionsRecoveryInProgress()) return;
         try {
             if (CoreAPI.getSetting('uniqueGalleryFolders')) {
                 CoreAPI.syncAllGalleryFolderOverrides();

@@ -16,6 +16,7 @@ let currentCharacter = null;
 let currentZoom = 1;
 let panX = 0;
 let panY = 0;
+let currentMediaIsGif = false;
 let isDragging = false;
 let dragStartX = 0;
 let dragStartY = 0;
@@ -146,6 +147,7 @@ export function closeViewer() {
     currentZoom = 1;
     panX = 0;
     panY = 0;
+    currentMediaIsGif = false;
     isDragging = false;
     didDrag = false;
 }
@@ -203,11 +205,77 @@ function isVideo(media) {
     return media.name?.match(/\.(mp4|webm|mov|avi|mkv|m4v)$/i);
 }
 
+function isGif(media) {
+    if (!media) return false;
+    return media.name?.match(/\.gif$/i);
+}
+
+function freezeGifThumbnail(imgEl, maxSize = 160) {
+    if (!imgEl || imgEl.dataset.gifThumbFrozen === '1' || imgEl.dataset.gifThumbPending === '1') return;
+    imgEl.dataset.gifThumbPending = '1';
+
+    const finalize = () => {
+        delete imgEl.dataset.gifThumbPending;
+    };
+
+    const renderPoster = () => {
+        if (!imgEl.isConnected || imgEl.dataset.gifThumbFrozen === '1') {
+            finalize();
+            return;
+        }
+
+        const src = imgEl.currentSrc || imgEl.src;
+        const w = imgEl.naturalWidth;
+        const h = imgEl.naturalHeight;
+        if (!src || src.startsWith('data:') || !w || !h) {
+            finalize();
+            return;
+        }
+
+        try {
+            const scale = Math.min(1, maxSize / Math.max(w, h));
+            const tw = Math.max(1, Math.round(w * scale));
+            const th = Math.max(1, Math.round(h * scale));
+            const canvas = document.createElement('canvas');
+            canvas.width = tw;
+            canvas.height = th;
+
+            const ctx = canvas.getContext('2d', { alpha: true });
+            if (!ctx) {
+                canvas.width = 0;
+                canvas.height = 0;
+                finalize();
+                return;
+            }
+
+            ctx.drawImage(imgEl, 0, 0, tw, th);
+            const dataUrl = canvas.toDataURL('image/webp', 0.82);
+            canvas.width = 0;
+            canvas.height = 0;
+
+            imgEl.src = dataUrl;
+            imgEl.dataset.gifThumbFrozen = '1';
+        } catch (err) {
+            // Ignore conversion failures and keep the original GIF thumbnail.
+        } finally {
+            finalize();
+        }
+    };
+
+    if (imgEl.complete && imgEl.naturalWidth > 0) {
+        renderPoster();
+    } else {
+        imgEl.addEventListener('load', renderPoster, { once: true });
+        imgEl.addEventListener('error', finalize, { once: true });
+    }
+}
+
 function showImage(index) {
     if (index < 0 || index >= currentImages.length) return;
     
     currentIndex = index;
     const media = currentImages[index];
+    currentMediaIsGif = isGif(media);
     
     const imgEl = document.getElementById('galleryViewerImage');
     const videoEl = document.getElementById('galleryViewerVideo');
@@ -237,6 +305,7 @@ function showImage(index) {
         }
         if (imgEl) {
             imgEl.style.display = 'block';
+            imgEl.classList.toggle('is-gif', currentMediaIsGif);
             imgEl.src = media.url;
             imgEl.alt = media.name;
             // Reset zoom when changing images
@@ -259,7 +328,7 @@ function resetZoom() {
     panY = 0;
     const imgEl = document.getElementById('galleryViewerImage');
     if (imgEl) {
-        imgEl.style.transform = `scale(1)`;
+        imgEl.style.transform = currentMediaIsGif ? 'none' : 'scale(1)';
         imgEl.style.cursor = '';
     }
     updateZoomIndicator();
@@ -269,6 +338,7 @@ function resetZoom() {
 let zoomIndicatorTimeout = null;
 
 function applyZoom(delta) {
+    if (currentMediaIsGif) return;
     const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, currentZoom + delta));
     if (newZoom !== currentZoom) {
         currentZoom = newZoom;
@@ -286,6 +356,7 @@ function applyZoom(delta) {
 }
 
 function applyTransform() {
+    if (currentMediaIsGif) return;
     const imgEl = document.getElementById('galleryViewerImage');
     if (!imgEl) return;
     if (panX === 0 && panY === 0) {
@@ -352,6 +423,7 @@ function renderThumbnails() {
     const esc = CoreAPI.escapeHtml;
     strip.innerHTML = currentImages.map((media, idx) => {
         const mediaIsVideo = isVideo(media);
+        const mediaIsGif = isGif(media);
         if (mediaIsVideo) {
             return `
                 <div class="gv-thumb ${idx === currentIndex ? 'active' : ''}" data-index="${idx}">
@@ -361,12 +433,14 @@ function renderThumbnails() {
             `;
         } else {
             return `
-                <div class="gv-thumb ${idx === currentIndex ? 'active' : ''}" data-index="${idx}">
-                    <img src="${esc(media.url)}" alt="${esc(media.name)}" loading="lazy">
+                <div class="gv-thumb ${idx === currentIndex ? 'active' : ''} ${mediaIsGif ? 'gif-thumb' : ''}" data-index="${idx}">
+                    <img src="${esc(media.url)}" alt="${esc(media.name)}" loading="lazy" decoding="async" data-gif="${mediaIsGif ? '1' : '0'}">
                 </div>
             `;
         }
     }).join('');
+
+    strip.querySelectorAll('img[data-gif="1"]').forEach((img) => freezeGifThumbnail(img));
 }
 
 function updateThumbnailSelection() {
@@ -944,6 +1018,28 @@ function injectStyles() {
         
         .gv-thumb {
             position: relative;
+        }
+
+        .gv-thumb.gif-thumb::after {
+            content: 'GIF';
+            position: absolute;
+            right: 4px;
+            bottom: 4px;
+            font-size: 10px;
+            font-weight: 700;
+            line-height: 1;
+            letter-spacing: 0.02em;
+            color: #fff;
+            background: rgba(0, 0, 0, 0.55);
+            border-radius: 3px;
+            padding: 2px 4px;
+            pointer-events: none;
+        }
+
+        .gv-image.is-gif {
+            transition: none;
+            transform: none !important;
+            will-change: auto;
         }
         
         /* Zoom indicator */

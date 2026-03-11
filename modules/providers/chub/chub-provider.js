@@ -330,9 +330,9 @@ class ChubProvider extends ProviderBase {
             _cachedLinkNode = node;
 
             return {
-                downloads: node.starCount || 0,
-                favorites: node.n_favorites || node.nFavorites || 0,
-                tokens: node.nTokens || node.n_tokens || 0
+                stat1: node.starCount || 0,
+                stat2: node.n_favorites || node.nFavorites || 0,
+                stat3: node.nTokens || node.n_tokens || 0
             };
         } catch (e) {
             api?.debugLog?.('[ChubProvider] fetchLinkStats:', e.message);

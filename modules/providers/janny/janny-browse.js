@@ -259,7 +259,7 @@ function renderGrid(characters, append = false) {
 function updateLoadMore() {
     const loadMore = document.getElementById('jannyLoadMore');
     if (loadMore) {
-        loadMore.style.display = jannyHasMore && jannyCharacters.length > 0 ? 'block' : 'none';
+        loadMore.style.display = jannyHasMore && jannyCharacters.length > 0 ? 'flex' : 'none';
     }
 }
 
@@ -307,6 +307,29 @@ async function loadCharacters(append = false) {
         // Client-side: hide owned characters
         if (jannyFilterHideOwned) {
             hits = hits.filter(h => !isCharInLocalLibrary(h));
+        }
+
+        // Auto-fetch when client-side filters remove too many results
+        if (jannyFilterHideOwned && jannyCurrentPage < totalPages) {
+            let autoFetches = 0;
+            while (hits.length < 40 && jannyCurrentPage < totalPages && autoFetches < 3 && delegatesInitialized) {
+                autoFetches++;
+                jannyCurrentPage++;
+                const moreData = await searchJanny({
+                    search: effectiveSearch,
+                    page: jannyCurrentPage,
+                    limit: 40,
+                    sort: jannySortMode
+                });
+                if (!delegatesInitialized) return;
+                const moreResult = moreData?.results?.[0];
+                let moreHits = moreResult?.hits || [];
+                moreHits = moreHits.filter(h => !isCharInLocalLibrary(h));
+                hits = hits.concat(moreHits);
+            }
+            if (autoFetches > 0) {
+                debugLog(`[JannyBrowse] Auto-fetched ${autoFetches} extra page(s) to compensate for "hide owned" filter`);
+            }
         }
 
         if (append) {
@@ -386,6 +409,7 @@ function openPreviewModal(hit) {
     const avatarImg = document.getElementById('jannyCharAvatar');
     avatarImg.src = avatarUrl;
     avatarImg.onerror = () => { avatarImg.src = '/img/ai4.png'; };
+    BrowseView.adjustPortraitPosition(avatarImg);
     document.getElementById('jannyCharName').textContent = name;
     document.getElementById('jannyCharCreator').textContent = hit.creatorUsername || hit.creatorId || 'Unknown';
     document.getElementById('jannyOpenInBrowserBtn').href = jannyUrl;
@@ -436,6 +460,8 @@ function openPreviewModal(hit) {
     importBtn.disabled = false;
 
     modal.classList.remove('hidden');
+    const charBody = modal.querySelector('.browse-char-body');
+    if (charBody) charBody.scrollTop = 0;
 
     // Fetch full details in background — store promise so Import can await it
     const fetchToken = ++jannyDetailFetchToken;
@@ -493,45 +519,71 @@ async function fetchAndPopulateDetails(hit, token) {
 
         const descSection = document.getElementById('jannyCharDescriptionSection');
         const descEl = document.getElementById('jannyCharDescription');
-        if (personality) {
-            descSection.style.display = 'block';
-            descEl.innerHTML = formatRichText(personality, name, false);
-        } else {
-            // No personality found — hide the loading indicator
-            descSection.style.display = 'none';
+        if (descSection) {
+            if (personality) {
+                descSection.style.display = 'block';
+                if (descEl) descEl.innerHTML = formatRichText(personality, name, false);
+            } else {
+                descSection.style.display = 'none';
+            }
         }
 
         const scenarioSection = document.getElementById('jannyCharScenarioSection');
         const scenarioEl = document.getElementById('jannyCharScenario');
-        if (scenario) {
+        if (scenarioSection && scenario) {
             scenarioSection.style.display = 'block';
-            scenarioEl.innerHTML = formatRichText(scenario, name, false);
+            if (scenarioEl) scenarioEl.innerHTML = formatRichText(scenario, name, false);
         }
 
         const firstMsgSection = document.getElementById('jannyCharFirstMsgSection');
         const firstMsgEl = document.getElementById('jannyCharFirstMsg');
-        if (firstMessage) {
+        if (firstMsgSection && firstMessage) {
             firstMsgSection.style.display = 'block';
-            firstMsgEl.innerHTML = formatRichText(firstMessage, name, false);
-            firstMsgEl.dataset.fullContent = firstMessage;
+            if (firstMsgEl) {
+                firstMsgEl.innerHTML = formatRichText(firstMessage, name, false);
+                firstMsgEl.dataset.fullContent = firstMessage;
+            }
         }
 
         const examplesSection = document.getElementById('jannyCharExamplesSection');
         const examplesEl = document.getElementById('jannyCharExamples');
-        if (exampleDialogs) {
+        if (examplesSection && exampleDialogs) {
             examplesSection.style.display = 'block';
-            examplesEl.innerHTML = formatRichText(exampleDialogs, name, false);
+            if (examplesEl) examplesEl.innerHTML = formatRichText(exampleDialogs, name, false);
         }
     } catch (err) {
         debugLog('[JannyBrowse] Detail fetch error:', err);
+        if (token === jannyDetailFetchToken) {
+            const descEl = document.getElementById('jannyCharDescription');
+            if (descEl) descEl.innerHTML = '<em style="color: var(--text-secondary, #888)">Could not load character definition. The character can still be imported with basic info.</em>';
+        }
     }
+}
+
+function cleanupJannyCharModal() {
+    window.currentBrowseAltGreetings = null;
+    const creatorEl = document.getElementById('jannyCharCreator');
+    if (creatorEl) creatorEl.textContent = '';
+    const sectionIds = [
+        'jannyCharDescription',
+        'jannyCharScenario',
+        'jannyCharFirstMsg',
+        'jannyCharExamples',
+        'jannyCharAltGreetings',
+        'jannyCharTags',
+    ];
+    for (const id of sectionIds) {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = '';
+    }
+    const notesEl = document.getElementById('jannyCharCreatorNotes');
+    if (notesEl) cleanupCreatorNotesContainer(notesEl);
 }
 
 function closePreviewModal() {
     jannyDetailFetchToken++;
     jannyDetailFetchPromise = null;
-    const notesEl = document.getElementById('jannyCharCreatorNotes');
-    if (notesEl) cleanupCreatorNotesContainer(notesEl);
+    cleanupJannyCharModal();
     const modal = document.getElementById('jannyCharModal');
     if (modal) modal.classList.add('hidden');
     jannySelectedChar = null;
@@ -1066,6 +1118,19 @@ class JannyBrowseView extends BrowseView {
 
     get previewModalId() { return 'jannyCharModal'; }
 
+    getSettingsConfig() {
+        return {
+            browseSortOptions: [
+                { value: 'newest', label: 'Newest' },
+                { value: 'oldest', label: 'Oldest' },
+                { value: 'tokens_desc', label: 'Most Tokens' },
+                { value: 'tokens_asc', label: 'Least Tokens' },
+            ],
+            followingSortOptions: [],
+            viewModes: [],
+        };
+    }
+
     closePreview() {
         closePreviewModal();
     }
@@ -1262,20 +1327,21 @@ class JannyBrowseView extends BrowseView {
                     <div id="jannyCharScenario" class="scrolling-text"></div>
                 </div>
 
+                <!-- Example Dialogs -->
+                <div class="browse-char-section browse-section-collapsed" id="jannyCharExamplesSection" style="display: none;">
+                    <h3 class="browse-section-title" data-section="jannyCharExamples" data-label="Example Dialogs" data-icon="fa-solid fa-comments" title="Click to expand">
+                        <i class="fa-solid fa-comments"></i> Example Dialogs
+                        <span class="browse-section-inline-toggle" title="Toggle inline"><i class="fa-solid fa-chevron-down"></i></span>
+                    </h3>
+                    <div id="jannyCharExamples" class="scrolling-text"></div>
+                </div>
+
                 <!-- First Message -->
                 <div class="browse-char-section" id="jannyCharFirstMsgSection" style="display: none;">
                     <h3 class="browse-section-title" data-section="jannyCharFirstMsg" data-label="First Message" data-icon="fa-solid fa-message" title="Click to expand">
                         <i class="fa-solid fa-message"></i> First Message
                     </h3>
                     <div id="jannyCharFirstMsg" class="scrolling-text first-message-preview"></div>
-                </div>
-
-                <!-- Example Dialogs -->
-                <div class="browse-char-section" id="jannyCharExamplesSection" style="display: none;">
-                    <h3 class="browse-section-title" data-section="jannyCharExamples" data-label="Example Dialogs" data-icon="fa-solid fa-comments" title="Click to expand">
-                        <i class="fa-solid fa-comments"></i> Example Dialogs
-                    </h3>
-                    <div id="jannyCharExamples" class="scrolling-text"></div>
                 </div>
             </div>
         </div>
@@ -1293,6 +1359,14 @@ class JannyBrowseView extends BrowseView {
         const grid = document.getElementById('jannyGrid');
         if (grid) this.observeImages(grid);
         loadCharacters(false);
+    }
+
+    applyDefaults(defaults) {
+        if (defaults.sort) {
+            jannySortMode = defaults.sort;
+            const el = document.getElementById('jannySortSelect');
+            if (el) el.value = defaults.sort;
+        }
     }
 
     activate(container, options = {}) {
